@@ -30,8 +30,8 @@ Browsers connect to each other directly. That works on most home networks, but p
 
 1. Create a free Metered account and add an app. The free plan includes 500 MB of relay traffic a month, which is plenty for kart inputs and snapshots.
 2. In the app's TURN settings, copy the **credentials URL**. It looks like `https://YOUR-APP.metered.live/api/v1/turn/credentials?apiKey=...`
-3. Open `index.html`, find `const TURN_API_URL='';` near the networking section, and paste the URL between the quotes.
-4. Commit and push. GitHub Pages redeploys in about a minute.
+3. In the game, open **Online race**, expand **Relay for strict networks**, paste the URL, and press **Test relay**. It should report relay routes available.
+4. Host as usual. Invite links carry the relay to friends automatically, and it is remembered in that browser. To bake it into the site for everyone instead, put the URL in `const TURN_API_URL='';` in `index.html` and push.
 
 The lobby shows how each player is connected: local network, direct internet link, or relay server.
 

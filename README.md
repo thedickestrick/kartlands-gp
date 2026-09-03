@@ -1,6 +1,6 @@
 # Kartlands GP
 
-A 3D arcade kart racer in a single HTML file. Eight racers, seven circuits, drifting, items, AI rivals, two-player split screen, gamepad support, and online rooms over WebRTC.
+A 3D arcade kart racer in a single HTML file. Eight racers, twelve circuits, drifting, items, AI rivals, two-player split screen, gamepad support, and online rooms over WebRTC.
 
 **Play it:** https://thedickestrick.github.io/kartlands-gp/
 

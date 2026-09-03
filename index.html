@@ -89,6 +89,9 @@
   .plabel{font-weight:900;letter-spacing:.14em;text-transform:uppercase;font-size:12px;color:var(--sun);margin:10px 0 2px}
   .card.dis{opacity:.35;pointer-events:none}
 
+  #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--navy);color:var(--cream);border:2px solid var(--mint);border-radius:12px;padding:10px 16px;font:900 14px var(--body);opacity:0;transition:opacity .3s;pointer-events:none;z-index:50;white-space:nowrap}
+  #toast.show{opacity:1}
+
   /* touch */
   #touch{display:none;position:fixed;inset:0;pointer-events:none}
   .tb{position:absolute;pointer-events:auto;width:76px;height:76px;border-radius:50%;background:rgba(20,26,51,.55);border:3px solid rgba(255,255,255,.5);color:var(--cream);font-family:var(--display);font-size:16px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 0 rgba(0,0,0,.4)}
@@ -131,6 +134,8 @@
   <button id="mute" title="Toggle sound (M)">SOUND ON</button>
 </div>
 
+<div id="toast"></div>
+
 <div id="touch">
   <div class="tb" data-k="left" style="left:18px;bottom:22px">◀</div>
   <div class="tb" data-k="right" style="left:106px;bottom:22px">▶</div>
@@ -153,6 +158,7 @@
       <span><kbd>E</kbd> / <kbd>Ctrl</kbd></span><span>Use item</span>
       <span><kbd>R</kbd></span><span>Reset kart onto the road</span>
       <span><kbd>Esc</kbd></span><span>Pause</span>
+      <span>🎮</span><span>Controller: left stick or d-pad steers, right trigger or A accelerates, left trigger or B brakes, bumpers or X drift, Y fires, Back resets, Start pauses. A second pad drives Player 2 in split screen.</span>
     </div>
     <div class="modes">
       <button class="mode" id="btnSolo"><b>Solo race</b><span>You against seven AI rivals. Keyboard or touch.</span></button>
@@ -647,13 +653,13 @@ function beginRace(trackIdx,slots){
 }
 // player-directed feedback: local views get it now, remote players get it in their next snapshot
 function applyFx(v,kind,a,b,c){switch(kind){
-  case 'sfx':Audio.sfx(a);break;
+  case 'sfx':Audio.sfx(a);if(a==='boost')rumble(v.i,.15,.5,220);break;
   case 'msg':showMsg(v,a,b,c);break;
-  case 'got':Audio.sfx('got');v.hud.el.itembox.classList.remove('roll');break;
+  case 'got':Audio.sfx('got');v.hud.el.itembox.classList.remove('roll');rumble(v.i,0,.3,90);break;
   case 'pick':Audio.sfx('pick');v.hud.el.itembox.classList.add('roll');break;
-  case 'bump':Audio.sfx('bump');v.shake=Math.max(v.shake,.3);break;
-  case 'hit':Audio.sfx('hit');v.shake=.8;break;
-  case 'bolt':Audio.sfx('bolt');v.shake=.5;flashScreen();break;
+  case 'bump':Audio.sfx('bump');v.shake=Math.max(v.shake,.3);rumble(v.i,.35,.25,120);break;
+  case 'hit':Audio.sfx('hit');v.shake=.8;rumble(v.i,.9,.6,380);break;
+  case 'bolt':Audio.sfx('bolt');v.shake=.5;flashScreen();rumble(v.i,.6,.9,450);break;
   case 'finish':Audio.sfx('finish');showMsg(v,'FINISH!',a);break;}}
 function fx(k,kind,a,b,c){if(k.remote){k.netEv.push([kind,a,b,c]);return;}if(k.view)applyFx(k.view,kind,a,b,c);}
 function fxAll(kind){G.views.forEach(v=>applyFx(v,kind));G.karts.forEach(k=>{if(k.remote)k.netEv.push([kind]);});}
@@ -940,7 +946,7 @@ const Net={role:null,peer:null,myId:null,code:null,name:'Racer',conns:new Map(),
     case 'full':Net.leave(true);Net.status('That room is full.',true);$('online').style.display='flex';break;
     case 'busy':Net.status('That room is mid-race. You will join when it returns to the lobby…',true);Net.scheduleRejoin(8000);break;}},
   hostGone(){if(Net.role!=='client'||!Net.hostConn||Net.rejoinPending)return;Net.log('host connection closed');Net.dropRace('Lost the host. Waiting for the room to come back…');Net.scheduleRejoin(1500);},
-  sendInput(){const I=inputs[0];if(!Net.hostConn||!Net.hostConn.open)return;Net.hostConn.send({t:'in',u:+I.up,d:+I.down,l:+I.left,r:+I.right,dr:+I.drift,it:Net.itemCount,rs:Net.resetCount});},
+  sendInput(){const I=inputs[0];if(!Net.hostConn||!Net.hostConn.open)return;const li=localInput(I,0);Net.hostConn.send({t:'in',u:+(li.throttle>0),d:+(li.throttle<0),l:+(li.steer>0.05),r:+(li.steer<-0.05),st:+li.steer.toFixed(2),dr:+li.drift,it:Net.itemCount,rs:Net.resetCount});},
   // own kart: discrete state comes from the host; position is reconciled against where we were one round trip ago
   applyAuthoritative(s){const me=G.player;if(!me)return;const a=s.k[me.i];if(!a)return;
     me.lap=a[5];me.item=a[7]||null;me.boost=a[8];me.spin=a[9];me.shrink=a[10];me.shield=a[11];me.rank=a[15];me.finished=!!a[16];me.rolling=a[17];
@@ -982,7 +988,7 @@ function clientTick(dt){
   Net.inAcc+=dt;if(Net.inAcc>=INPUT_RATE){Net.inAcc=0;Net.sendInput();}
   Net.pingT+=dt;if(Net.pingT>2){Net.pingT=0;if(Net.hostConn&&Net.hostConn.open)Net.hostConn.send({t:'ping',t0:now});}
   // own kart: predicted locally
-  if(me&&!me.puppet){stepKart(me,G.raceTime<0?{throttle:0,steer:0,drift:false}:localInput(I),dt);Net.hist.push({t:now,x:me.pos.x,z:me.pos.z,h:me.heading});if(Net.hist.length>90)Net.hist.shift();}
+  if(me&&!me.puppet){stepKart(me,G.raceTime<0?{throttle:0,steer:0,drift:false}:localInput(I,0),dt);Net.hist.push({t:now,x:me.pos.x,z:me.pos.z,h:me.heading});if(Net.hist.length>90)Net.hist.shift();}
   // everyone else: interpolated between the two snapshots bracketing (now - delay)
   const S=Net.snaps;if(S.length){const rt=now-INTERP_DELAY;let a=S[0],b=S[0];for(let i=0;i<S.length;i++){if(S[i].at<=rt)a=S[i];if(S[i].at>=rt){b=S[i];break;}b=S[i];}
     const span=b.at-a.at;const t=span>0?clamp((rt-a.at)/span,0,1):1;const latest=S[S.length-1].s;
@@ -1021,7 +1027,7 @@ function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':
 
 // ============================================================ main loop
 let finishWait=0;
-function frame(now){requestAnimationFrame(frame);const dt=Math.min(0.05,(now-G.lastFrame)/1000||0.016);G.lastFrame=now;tick(dt);render();}
+function frame(now){requestAnimationFrame(frame);const dt=Math.min(0.05,(now-G.lastFrame)/1000||0.016);G.lastFrame=now;pollGamepads();tick(dt);render();}
 const _sz=new THREE.Vector2();
 function render(){renderer.getSize(_sz);const w=_sz.x,h=_sz.y;
   if(G.views.length>1&&(G.state==='race'||G.state==='results')){renderer.setScissorTest(true);
@@ -1032,16 +1038,32 @@ function render(){renderer.getSize(_sz);const w=_sz.x,h=_sz.y;
     cam.aspect=w/h;cam.updateProjectionMatrix();sky.position.copy(cam.position);renderer.render(scene,cam);}}
 function countdown(prev){if(prev<0){const step=Math.ceil(-G.raceTime);if(step!==G.countStep){G.countStep=step;if(step>0&&step<=3){G.views.forEach(v=>showMsg(v,String(step)));Audio.sfx('count');}}
     if(G.raceTime>=0){G.views.forEach(v=>showMsg(v,'GO!','',.9));Audio.sfx('go');return true;}}return false;}
-function localInput(I){return {throttle:I.up?1:I.down?-1:0,steer:(I.left?1:0)-(I.right?1:0),drift:I.drift};}
+// ---------- gamepads: pad 0 drives player 1, pad 1 drives player 2 in split screen; any pad drives player 1 otherwise
+const gpState=[{up:false,down:false,drift:false,steer:0},{up:false,down:false,drift:false,steer:0}];const gpPrev={};let gpSeen=0;
+function pollGamepads(){if(!navigator.getGamepads)return;let pads;try{pads=navigator.getGamepads();}catch(e){return;}gpState.forEach(g=>{g.up=g.down=g.drift=false;g.steer=0;});let n=0;
+  for(const p of pads){if(!p||!p.connected)continue;const pi=G.mode==='split'?Math.min(n,1):0;n++;const g=gpState[pi];const bt=i=>!!(p.buttons[i]&&(p.buttons[i].pressed||p.buttons[i].value>0.3));
+    const ax=p.axes[0]||0;let steer=Math.abs(ax)>0.15?-(ax-Math.sign(ax)*0.15)/0.85:0;if(bt(14))steer=1;if(bt(15))steer=-1;if(steer)g.steer=clamp(steer,-1,1);
+    if(bt(7)||bt(0)||(p.axes[1]||0)<-0.6)g.up=true;if(bt(6)||bt(1)||(p.axes[1]||0)>0.6)g.down=true;if(bt(5)||bt(4)||bt(2))g.drift=true;
+    const prev=gpPrev[p.index]||{};const now={item:bt(3),reset:bt(8),start:bt(9),a:bt(0)};
+    if(now.item&&!prev.item)inputs[pi].itemPressed=true;if(now.reset&&!prev.reset)inputs[pi].reset=true;
+    if(now.start&&!prev.start){if(G.state==='results')$('btnAgain').click();else togglePause();}
+    if(now.a&&!prev.a&&G.state==='results')$('btnAgain').click();
+    gpPrev[p.index]=now;}}
+function padsFor(pi){const out=[];if(!navigator.getGamepads)return out;let pads;try{pads=navigator.getGamepads();}catch(e){return out;}let n=0;for(const p of pads){if(!p||!p.connected)continue;const idx=G.mode==='split'?Math.min(n,1):0;n++;if(idx===pi||G.mode!=='split')out.push(p);}return out;}
+function rumble(pi,strong,weak,ms){for(const p of padsFor(pi)){const a=p.vibrationActuator;if(a&&a.playEffect){try{a.playEffect('dual-rumble',{startDelay:0,duration:ms,strongMagnitude:strong,weakMagnitude:weak}).catch(()=>{});}catch(e){}}}}
+let toastT=null;function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),3200);}
+addEventListener('gamepadconnected',e=>{gpSeen++;const id=(e.gamepad.id||'Controller').replace(/\s*\(.*$/,'').slice(0,40);toast('Controller connected: '+id+(G.mode==='split'&&e.gamepad.index>0?' (Player 2)':''));});
+addEventListener('gamepaddisconnected',()=>toast('Controller disconnected'));
+function localInput(I,i){const g=gpState[i]||gpState[0];const ks=(I.left?1:0)-(I.right?1:0);return {throttle:(I.up||g.up)?1:(I.down||g.down)?-1:0,steer:ks!==0?ks:g.steer,drift:I.drift||g.drift};}
 function tick(dt){
   if(G.state!=='race'||G.paused)return;
   if(Net.role==='client'){clientTick(dt);return;}
   G.time+=dt;const prev=G.raceTime;G.raceTime+=dt;
-  if(countdown(prev))G.karts.forEach(k=>{const up=k.isPlayer?(k.remote?k.netInput.u:inputs[k.pIndex].up):Math.random()<.5;if(up)k.boost=.7;});
+  if(countdown(prev))G.karts.forEach(k=>{const up=k.isPlayer?(k.remote?k.netInput.u:(inputs[k.pIndex].up||gpState[k.pIndex].up)):Math.random()<.5;if(up)k.boost=.7;});
   for(const k of G.karts){let inp;
     if(k.isPlayer&&!k.finished){
-      if(k.remote){const NI=k.netInput;inp={throttle:NI.u?1:NI.d?-1:0,steer:(NI.l?1:0)-(NI.r?1:0),drift:!!NI.dr};if(NI.it>k.lastItemCount){k.lastItemCount=NI.it;useItem(k);}if(NI.rs>k.lastResetCount){k.lastResetCount=NI.rs;resetKart(k);}}
-      else{const I=inputs[k.pIndex];inp=localInput(I);if(I.itemPressed)useItem(k);if(I.reset){resetKart(k);I.reset=false;}}}
+      if(k.remote){const NI=k.netInput;inp={throttle:NI.u?1:NI.d?-1:0,steer:NI.st!=null?clamp(NI.st,-1,1):(NI.l?1:0)-(NI.r?1:0),drift:!!NI.dr};if(NI.it>k.lastItemCount){k.lastItemCount=NI.it;useItem(k);}if(NI.rs>k.lastResetCount){k.lastResetCount=NI.rs;resetKart(k);}}
+      else{const I=inputs[k.pIndex];inp=localInput(I,k.pIndex);if(I.itemPressed)useItem(k);if(I.reset){resetKart(k);I.reset=false;}}}
     else if(k.isPlayer&&k.finished){inp=aiInput(k,dt);k.aiMul=0.7;}else inp=aiInput(k,dt);stepKart(k,inp,dt);}
   inputs.forEach(I=>I.itemPressed=false);
   kartCollisions(dt);updateProjectiles(dt);updateHazards(dt);updateBoxes(dt);updateStandings();updateParticles(dt);
@@ -1055,7 +1077,7 @@ function tick(dt){
 }
 let stragglerWait=0;
 requestAnimationFrame(frame);
-window.__kartDebug={G,inputs,input,tick,Net,get track(){return track;},render};
+window.__kartDebug={G,inputs,input,tick,Net,pollGamepads,gpState,get track(){return track;},render};
 
 // ============================================================ menus
 function buildCharGrid(container,p){const cc=$(container);cc.innerHTML='';const other=G.mode==='split'?G.selChars[1-p]:-1;CHARACTERS.forEach((ch,i)=>{const d=document.createElement('div');d.className='card'+(i===G.selChars[p]?' sel':'')+(i===other?' dis':'');d.tabIndex=0;const hex='#'+new THREE.Color(ch.color).getHexString();

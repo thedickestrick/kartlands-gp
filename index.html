@@ -198,6 +198,7 @@
       <button class="btn ghost" id="btnOnlineBack">Back</button>
     </div>
     <div id="netStatus"></div>
+    <p id="netHint" style="font-size:13px;color:var(--muted);font-weight:700;margin-top:10px"></p>
   </div>
 </div>
 
@@ -206,6 +207,7 @@
     <div class="eyebrow">Room code</div>
     <div class="code" id="lobbyCode">-----</div>
     <p id="lobbyHint">Share this code. Racers appear below as they join.</p>
+    <div class="row" style="margin:0 0 12px"><button class="btn ghost" id="btnInvite">Copy invite link</button><span id="inviteMsg" style="font-weight:700;color:var(--mint);font-size:13px;word-break:break-all"></span></div>
     <div class="plist" id="lobbyPlayers"></div>
     <div class="plabel">Your racer</div>
     <div class="grid" id="chars3"></div>
@@ -870,6 +872,8 @@ function renderResults(title,rows,label,myNetId){G.state='results';Audio.stopMus
 const ICE={iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},
   {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},{urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'}]};
 const SNAP_RATE=1/20, INPUT_RATE=1/30, INTERP_DELAY=110;
+const FATAL=new Set(['browser-incompatible','invalid-id','invalid-key','ssl-unavailable','server-error','socket-error','socket-closed','webrtc']);
+const PAGES_URL='https://thedickestrick.github.io/kartlands-gp/';
 const nowMs=()=>window.__simNow!=null?window.__simNow:performance.now();
 const Net={role:null,peer:null,myId:null,code:null,name:'Racer',conns:new Map(),lobby:{players:[],track:0},hostConn:null,
   snaps:[],acc:0,inAcc:0,itemCount:0,resetCount:0,rtt:80,pingT:0,hist:[],puppetProj:new Map(),puppetHaz:new Map(),
@@ -877,13 +881,15 @@ const Net={role:null,peer:null,myId:null,code:null,name:'Racer',conns:new Map(),
   codeFor(){const A='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<5;i++)s+=A[Math.floor(Math.random()*A.length)];return s;},
   readName(){const n=($('netName').value||'').trim();Net.name=n?n.slice(0,12):'Racer';try{localStorage.setItem('kgp-name',Net.name);}catch(e){}},
   // ---------- host
-  host(){if(typeof Peer==='undefined'){Net.status('The networking library did not load. Check your connection and reload.',true);return;}
-    Net.readName();Net.role='host';Net.code=Net.codeFor();Net.myId='host';Net.status('Opening room…');
-    const peer=new Peer('kgp-'+Net.code,{config:ICE});Net.peer=peer;
-    peer.on('open',()=>{Net.lobby={players:[{id:'host',name:Net.name,ch:G.selChars[0],host:true}],track:G.selTrack};Net.status('');openLobby();});
+  host(code,attempt){if(typeof Peer==='undefined'){Net.status('The networking library did not load. Check your connection and reload.',true);return;}
+    Net.readName();Net.role='host';Net.code=code||Net.codeFor();Net.myId='host';attempt=attempt||0;Net.status(attempt?'Reclaiming room '+Net.code+'…':'Opening room…');
+    const peer=new Peer('kgp-'+Net.code,{config:ICE});Net.peer=peer;let opened=false;
+    peer.on('open',()=>{opened=true;if(!Net.lobby.players.length)Net.lobby={players:[{id:'host',name:Net.name,ch:G.selChars[0],host:true}],track:G.selTrack};Net.remember();Net.status('');openLobby();});
     peer.on('connection',conn=>{conn.on('open',()=>{Net.conns.set(conn.peer,conn);});conn.on('data',d=>Net.hostData(conn,d));conn.on('close',()=>Net.hostDrop(conn.peer));conn.on('error',()=>Net.hostDrop(conn.peer));});
-    peer.on('error',e=>{if(e.type==='unavailable-id'){peer.destroy();Net.role=null;Net.host();return;}Net.status('Room error: '+e.type,true);});
-    peer.on('disconnected',()=>{if(Net.role==='host')peer.reconnect();});},
+    peer.on('error',e=>{Net.log('host error',e.type,e.message);
+      if(e.type==='unavailable-id'){try{peer.destroy();}catch(err){}if(code&&attempt<6){Net.status('Room '+Net.code+' is still closing, retrying…');setTimeout(()=>{if(Net.role==='host')Net.host(code,attempt+1);},1500);}else{Net.role=null;Net.host();}return;}
+      if(FATAL.has(e.type)&&!opened){Net.leave(true);Net.status('Could not open a room ('+e.type+'). '+Net.hint(),true);$('online').style.display='flex';}});
+    peer.on('disconnected',()=>{if(Net.role==='host'&&Net.peer===peer){Net.log('signaling dropped, reconnecting');setTimeout(()=>{try{if(!peer.destroyed)peer.reconnect();}catch(err){}},1000);}});},
   hostData(conn,d){const id=conn.peer;switch(d.t){
     case 'hello':{if(G.state==='race'){conn.send({t:'busy'});conn.close();return;}const taken=new Set(Net.lobby.players.map(p=>p.ch));let ch=d.ch;if(taken.has(ch)){ch=0;while(taken.has(ch))ch++;}
       if(Net.lobby.players.length>=NUM_KARTS){conn.send({t:'full'});conn.close();return;}
@@ -906,24 +912,33 @@ const Net={role:null,peer:null,myId:null,code:null,name:'Racer',conns:new Map(),
     return {t:'s',rt:r(G.raceTime),k:G.karts.map(k=>[r(k.pos.x),r(k.pos.y),r(k.pos.z),r(k.heading),r(k.speed),k.lap,k.idx,k.item||0,r(k.boost),r(k.spin),r(k.shrink),r(k.shield),k.drift?1:0,k.driftDir,r(k.driftCharge),k.rank,k.finished?1:0,r(k.rolling),k.offroad?1:0,k.wrongT>1?1:0]),
       p:G.projectiles.map(p=>[p.id,r(p.pos.x),r(p.pos.y),r(p.pos.z),r(p.heading)]),h:G.hazards.map(h=>[h.id,r(h.pos.x),r(h.pos.y),r(h.pos.z)]),b:track.boxes.reduce((m,b,i)=>m|(b.active?1<<i:0),0)};},
   // ---------- client
-  join(code){if(typeof Peer==='undefined'){Net.status('The networking library did not load. Check your connection and reload.',true);return;}
+  join(code,opts){opts=opts||{};if(typeof Peer==='undefined'){Net.status('The networking library did not load. Check your connection and reload.',true);return;}
     code=(code||'').trim().toUpperCase();if(code.length!==5){Net.status('Enter the five-letter room code.',true);return;}
-    Net.readName();Net.role='client';Net.code=code;Net.status('Connecting to room '+code+'…');
-    const peer=new Peer({config:ICE});Net.peer=peer;
-    peer.on('open',id=>{Net.myId=id;const conn=peer.connect('kgp-'+code,{reliable:true,serialization:'json'});Net.hostConn=conn;
-      const timeout=setTimeout(()=>{if(!conn.open){Net.status('Could not reach the host. Check the code, or try again in a moment.',true);Net.leave(true);}},12000);
-      conn.on('open',()=>{clearTimeout(timeout);conn.send({t:'hello',name:Net.name,ch:G.selChars[0]});});
-      conn.on('data',d=>Net.clientData(d));conn.on('close',()=>Net.hostGone());conn.on('error',()=>Net.hostGone());});
-    peer.on('error',e=>{if(e.type==='peer-unavailable')Net.status('No room with code '+code+'. Codes expire when the host leaves.',true);else Net.status('Connection error: '+e.type,true);Net.leave(true);});},
+    clearTimeout(Net.rejoinTimer);Net.rejoinPending=false;Net.readName();Net.role='client';Net.code=code;
+    Net.joinTry=(opts.retry?Net.joinTry:0)+1;if(!opts.retry)Net.joinDeadline=performance.now()+90000;
+    Net.status(opts.retry?'Waiting for the host to come back… (attempt '+Net.joinTry+')':'Connecting to room '+code+'…');
+    const peer=new Peer({config:ICE});Net.peer=peer;let settled=false;
+    const fail=(msg,retryable)=>{if(settled)return;settled=true;clearTimeout(timeout);Net.hostConn=null;try{peer.destroy();}catch(e){}if(Net.peer===peer)Net.peer=null;
+      if(retryable&&performance.now()<Net.joinDeadline&&Net.role==='client'){Net.status(msg+' Retrying…',true);Net.rejoinPending=true;Net.rejoinTimer=setTimeout(()=>{if(Net.role==='client')Net.join(code,{retry:true,resume:opts.resume});},3000);}
+      else{Net.leave(true);Net.status(msg+' '+Net.hint(),true);$('online').style.display='flex';}};
+    const timeout=setTimeout(()=>fail('Could not reach the host.',true),20000);
+    peer.on('open',id=>{Net.myId=id;Net.status('Contacting the host…');const conn=peer.connect('kgp-'+code,{reliable:true,serialization:'json'});Net.hostConn=conn;
+      conn.on('open',()=>{clearTimeout(timeout);settled=true;Net.joinTry=0;Net.remember();conn.send({t:'hello',name:Net.name,ch:G.selChars[0]});});
+      conn.on('data',d=>Net.clientData(d));conn.on('close',()=>Net.hostGone());conn.on('error',err=>Net.log('conn error',err));});
+    peer.on('error',e=>{Net.log('client error',e.type,e.message);
+      if(e.type==='peer-unavailable')fail(opts.retry||opts.resume?'The room is not open yet.':'No room with code '+code+'.',!!(opts.retry||opts.resume));
+      else if(FATAL.has(e.type))fail('Connection error ('+e.type+').',true);
+      else if(e.type==='network'&&!settled)fail('Could not reach the signaling server.',true);});
+    peer.on('disconnected',()=>{if(Net.role==='client'&&Net.peer===peer&&settled){setTimeout(()=>{try{if(!peer.destroyed)peer.reconnect();}catch(err){}},1000);}});},
   clientData(d){switch(d.t){
-    case 'lobby':Net.lobby=d.lobby;G.selTrack=d.lobby.track;if(G.state==='results'){$('results').style.display='none';G.state='menu';startBackdrop();}Net.status('');openLobby();break;
+    case 'lobby':Net.lobby=d.lobby;G.selTrack=d.lobby.track;if(G.state!=='menu'){$('results').style.display='none';$('hud').style.display='none';Audio.stopMusic();Audio.engine(0,false,false);G.state='menu';startBackdrop();}Net.status('');openLobby();break;
     case 'start':G.mode='online';beginRace(d.track,d.slots);break;
     case 's':{const at=nowMs();Net.snaps.push({at,s:d});if(Net.snaps.length>12)Net.snaps.shift();G.raceTime=d.rt;Net.applyAuthoritative(d);if(d.ev){const v=G.views[0];if(v)d.ev.forEach(e=>applyFx(v,e[0],e[1],e[2],e[3]));}break;}
     case 'results':renderResults(resultTitle(d.rows.findIndex(r=>r.netId===Net.myId)+1),d.rows,d.label,Net.myId);break;
     case 'pong':Net.rtt=Math.max(20,nowMs()-d.t0);break;
-    case 'full':Net.status('That room is full.',true);Net.leave(true);break;
-    case 'busy':Net.status('That room is mid-race. Try again after it finishes.',true);Net.leave(true);break;}},
-  hostGone(){if(Net.role!=='client')return;Net.leave(true);Net.status('The host left the room.',true);$('online').style.display='flex';},
+    case 'full':Net.leave(true);Net.status('That room is full.',true);$('online').style.display='flex';break;
+    case 'busy':Net.status('That room is mid-race. You will join when it returns to the lobby…',true);Net.scheduleRejoin(8000);break;}},
+  hostGone(){if(Net.role!=='client'||!Net.hostConn||Net.rejoinPending)return;Net.log('host connection closed');Net.dropRace('Lost the host. Waiting for the room to come back…');Net.scheduleRejoin(1500);},
   sendInput(){const I=inputs[0];if(!Net.hostConn||!Net.hostConn.open)return;Net.hostConn.send({t:'in',u:+I.up,d:+I.down,l:+I.left,r:+I.right,dr:+I.drift,it:Net.itemCount,rs:Net.resetCount});},
   // own kart: discrete state comes from the host; position is reconciled against where we were one round trip ago
   applyAuthoritative(s){const me=G.player;if(!me)return;const a=s.k[me.i];if(!a)return;
@@ -936,11 +951,28 @@ const Net={role:null,peer:null,myId:null,code:null,name:'Racer',conns:new Map(),
     else{me.pos.x+=ex*.3;me.pos.z+=ez*.3;me.heading+=angDiff(hp.h,a[3])*.3;me.speed=lerp(me.speed,a[4],.3);}},
   clearPuppets(){for(const m of Net.puppetProj.values())scene.remove(m);Net.puppetProj.clear();for(const m of Net.puppetHaz.values())scene.remove(m);Net.puppetHaz.clear();},
   // ---------- lifecycle
-  leave(silent){if(Net.peer){try{Net.peer.destroy();}catch(e){}}Net.peer=null;Net.role=null;Net.myId=null;Net.hostConn=null;Net.conns.clear();Net.snaps=[];Net.hist=[];Net.lobby={players:[],track:G.selTrack};
+  leave(silent){clearTimeout(Net.rejoinTimer);Net.rejoinPending=false;Net.forget();Net.role=null;Net.hostConn=null;if(Net.peer){try{Net.peer.destroy();}catch(e){}}Net.peer=null;Net.myId=null;Net.conns.clear();Net.snaps=[];Net.hist=[];Net.lobby={players:[],track:G.selTrack};
     G.karts.forEach(k=>{k.remote=false;k.puppet=false;});Net.clearPuppets();
     ['lobby','results','pause'].forEach(id=>$(id).style.display='none');$('hud').style.display='none';
     if(G.state==='race'||G.state==='results'){Audio.stopMusic();Audio.engine(0,false,false);}
-    G.state='menu';if(!silent){$('online').style.display='none';$('menu').style.display='flex';Net.status('');}startBackdrop();}
+    G.state='menu';if(!silent){$('online').style.display='none';$('menu').style.display='flex';Net.status('');}startBackdrop();},
+  // keep the room but drop the race, then wait for the host to return
+  dropRace(msg){Net.hostConn=null;if(Net.peer){try{Net.peer.destroy();}catch(e){}}Net.peer=null;Net.snaps=[];Net.hist=[];Net.clearPuppets();
+    ['lobby','results','pause'].forEach(id=>$(id).style.display='none');$('hud').style.display='none';if(G.state==='race'||G.state==='results'){Audio.stopMusic();Audio.engine(0,false,false);}
+    G.state='menu';$('menu').style.display='none';$('online').style.display='flex';Net.status(msg,true);startBackdrop();},
+  scheduleRejoin(ms){const code=Net.code;Net.rejoinPending=true;Net.hostConn=null;if(Net.peer){try{Net.peer.destroy();}catch(e){}}Net.peer=null;Net.joinTry=0;Net.joinDeadline=performance.now()+180000;
+    clearTimeout(Net.rejoinTimer);Net.rejoinTimer=setTimeout(()=>{if(Net.role==='client')Net.join(code,{retry:true,resume:true});},ms);},
+  remember(){try{sessionStorage.setItem('kgp-room',JSON.stringify({role:Net.role,code:Net.code,name:Net.name}));}catch(e){}},
+  forget(){try{sessionStorage.removeItem('kgp-room');}catch(e){}if(location.search){try{history.replaceState(null,'',location.pathname);}catch(e){}}},
+  // after a reload: rejoin the room we were in, or follow an invite link
+  resume(){let saved=null;try{saved=JSON.parse(sessionStorage.getItem('kgp-room')||'null');}catch(e){}
+    const url=(new URLSearchParams(location.search).get('room')||'').toUpperCase();
+    if(url.length===5){openOnlinePanel();$('netCode').value=url;Net.join(url,{resume:true});return true;}
+    if(saved&&saved.code&&saved.role){openOnlinePanel();if(saved.name)$('netName').value=saved.name;if(saved.role==='host')Net.host(saved.code);else{$('netCode').value=saved.code;Net.join(saved.code,{resume:true});}return true;}
+    return false;},
+  hint(){return /^https?:$/.test(location.protocol)?'':'This copy is not running from a web address, so it cannot reach the signaling server. Use the web version at '+PAGES_URL;},
+  inviteUrl(){return /^https?:$/.test(location.protocol)?location.origin+location.pathname+'?room='+Net.code:null;},
+  log(){console.log.apply(console,['[net]'].concat(Array.prototype.slice.call(arguments)));}
 };
 function clientTick(dt){
   G.time+=dt;const prev=G.raceTime;G.raceTime+=dt;countdown(prev);
@@ -971,7 +1003,7 @@ function clientTick(dt){
 // ---------- lobby UI
 function openLobby(){G.state='menu';['menu','pick','online','results'].forEach(id=>$(id).style.display='none');$('lobby').style.display='flex';renderLobby();startBackdrop();}
 function renderLobby(){const L=Net.lobby;const host=Net.role==='host';$('lobbyCode').textContent=Net.code||'-----';
-  $('lobbyHint').textContent=host?'Share this code. Racers appear below as they join. You start the race.':'Connected. The host picks the circuit and starts the race.';
+  $('lobbyHint').textContent=host?'Share this code or the invite link. Racers appear below as they join, and you start the race.':'Connected. The host picks the circuit and starts the race.';$('btnInvite').style.display=Net.inviteUrl()?'':'none';
   $('lobbyPlayers').innerHTML=L.players.map(p=>`<div class="prow"><i style="background:#${new THREE.Color(CHARACTERS[p.ch].color).getHexString()}"></i><span>${escapeHtml(p.name)}</span><span style="color:var(--muted)">${CHARACTERS[p.ch].name}</span><span class="tag">${p.host?'Host':''}${p.id===Net.myId?(p.host?' · You':'You'):''}</span></div>`).join('')+
     (L.players.length<NUM_KARTS?`<div class="prow" style="color:var(--muted)">${NUM_KARTS-L.players.length} AI racer${NUM_KARTS-L.players.length===1?'':'s'} will fill the grid</div>`:'');
   const me=L.players.find(p=>p.id===Net.myId);const taken=new Set(L.players.filter(p=>p.id!==Net.myId).map(p=>p.ch));
@@ -1036,7 +1068,9 @@ function buildMenus(){const split=G.mode==='split';buildCharGrid('chars',0);$('p
 buildMenus();
 function openPick(mode){G.mode=mode;if(mode==='split'&&G.selChars[0]===G.selChars[1])G.selChars[1]=(G.selChars[0]+1)%NUM_KARTS;Audio.init();Audio.resume();Audio.sfx('ui');buildMenus();$('menu').style.display='none';$('pick').style.display='flex';}
 $('btnSolo').onclick=()=>openPick('solo');$('btnSplit').onclick=()=>openPick('split');
-$('btnOnline').onclick=()=>{G.mode='online';Audio.init();Audio.resume();Audio.sfx('ui');$('menu').style.display='none';$('online').style.display='flex';Net.status('');try{$('netName').value=localStorage.getItem('kgp-name')||'';}catch(e){}$('netName').focus();};
+function openOnlinePanel(){G.mode='online';['menu','pick','lobby','results'].forEach(id=>$(id).style.display='none');$('online').style.display='flex';Net.status('');try{if(!$('netName').value)$('netName').value=localStorage.getItem('kgp-name')||'';}catch(e){}const h=Net.hint();$('netHint').textContent=h?h:'Playing inside the Claude app? Online rooms need the web version: '+PAGES_URL;}
+$('btnOnline').onclick=()=>{Audio.init();Audio.resume();Audio.sfx('ui');openOnlinePanel();$('netName').focus();};
+$('btnInvite').onclick=()=>{const u=Net.inviteUrl();if(!u)return;const done=()=>{$('inviteMsg').textContent='Copied: '+u;};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(u).then(done,()=>{$('inviteMsg').textContent=u;});else $('inviteMsg').textContent=u;};
 $('btnOnlineBack').onclick=()=>{Net.leave(true);$('online').style.display='none';$('menu').style.display='flex';};
 $('btnHost').onclick=()=>{Audio.sfx('ui');Net.host();};
 $('btnJoin').onclick=()=>{Audio.sfx('ui');Net.join($('netCode').value);};
@@ -1060,6 +1094,7 @@ function startBackdrop(){if(!track){const d=TRACKS[0];track=buildTrack(d);scene.
   if(backdropRunning)return;backdropRunning=true;const b=track.bounds;const cx=(b.minX+b.maxX)/2,cz=(b.minZ+b.maxZ)/2;
   (function spin(){if(G.state!=='menu'){backdropRunning=false;return;}backdropAngle+=0.0025;const r=170;camera.position.set(cx+Math.cos(backdropAngle)*r,70,cz+Math.sin(backdropAngle)*r);camera.lookAt(cx,0,cz);sun.position.set(cx+60,110,cz+40);sun.target.position.set(cx,0,cz);sky.position.copy(camera.position);camera.fov=60;camera.updateProjectionMatrix();requestAnimationFrame(spin);})();}
 startBackdrop();
+Net.resume();
 $('btnMenu').addEventListener('click',()=>{if(G.state==='menu')startBackdrop();});$('btnQuit').addEventListener('click',startBackdrop);
 })();
 </script>

@@ -94,6 +94,8 @@
   .plabel{font-weight:900;letter-spacing:.14em;text-transform:uppercase;font-size:12px;color:var(--sun);margin:10px 0 2px}
   .card.dis{opacity:.35;pointer-events:none}
 
+  .gpfocus{outline:4px solid var(--mint)!important;outline-offset:3px;box-shadow:0 0 0 7px rgba(61,220,151,.22)}
+  input.gpedit{border-color:var(--sun)!important;background:rgba(255,210,63,.12)!important}
   #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--navy);color:var(--cream);border:2px solid var(--mint);border-radius:12px;padding:10px 16px;font:900 14px var(--body);opacity:0;transition:opacity .3s;pointer-events:none;z-index:50;white-space:nowrap}
   #toast.show{opacity:1}
 
@@ -163,7 +165,7 @@
       <span><kbd>E</kbd> / <kbd>Ctrl</kbd></span><span>Use item</span>
       <span><kbd>R</kbd></span><span>Reset kart onto the road</span>
       <span><kbd>Esc</kbd></span><span>Pause</span>
-      <span>🎮</span><span>Controller: either stick or the d-pad steers, right trigger, A, or left stick forward accelerates, left trigger, B, or left stick back brakes, bumpers or X drift, Y fires, Back resets, Start pauses. A second pad drives Player 2 in split screen.</span>
+      <span>🎮</span><span>Controller: either stick or the d-pad steers, right trigger, A, or left stick forward accelerates, left trigger, B, or left stick back brakes, bumpers or X drift, Y fires, Back resets, Start pauses. In menus the d-pad or sticks move, A picks, B goes back, and letters in name and code fields can be picked with up and down. A second pad drives Player 2 in split screen.</span>
     </div>
     <div class="modes">
       <button class="mode" id="btnSolo"><b>Solo race</b><span>You against seven AI rivals. Keyboard or touch.</span></button>
@@ -721,7 +723,7 @@ function beginRace(trackIdx,slots){
   $('hud').style.display='block';G.views.forEach(v=>{showMsg(v,'');v.hud.el.ptag.textContent=(G.mode==='online'?(v.kart.name||'YOU'):'PLAYER '+(v.i+1))+' · '+v.kart.ch.name.toUpperCase();});
   $('hud').classList.toggle('online',G.mode==='online');
   $('results').style.display='none';$('pick').style.display='none';$('menu').style.display='none';$('lobby').style.display='none';
-  G.views.forEach(v=>updateCamera(v,1,true));Audio.init();Audio.resume();Audio.startMusic();
+  G.views.forEach(v=>updateCamera(v,1,true));Audio.init();Audio.resume();Audio.startMusic();gpFocus(null);
 }
 // player-directed feedback: local views get it now, remote players get it in their next snapshot
 function applyFx(v,kind,a,b,c){switch(kind){
@@ -1124,15 +1126,48 @@ function countdown(prev){if(prev<0){const step=Math.ceil(-G.raceTime);if(step!==
     if(G.raceTime>=0){G.views.forEach(v=>showMsg(v,'GO!','',.9));Audio.sfx('go');return true;}}return false;}
 // ---------- gamepads: pad 0 drives player 1, pad 1 drives player 2 in split screen; any pad drives player 1 otherwise
 const gpState=[{up:false,down:false,drift:false,steer:0,throttle:0,brake:0},{up:false,down:false,drift:false,steer:0,throttle:0,brake:0}];const gpPrev={};let gpSeen=0;
-function pollGamepads(){if(!navigator.getGamepads)return;let pads;try{pads=navigator.getGamepads();}catch(e){return;}gpState.forEach(g=>{g.up=g.down=g.drift=false;g.steer=0;g.throttle=0;g.brake=0;});let n=0;
+function pollGamepads(){if(!navigator.getGamepads)return;let pads;try{pads=navigator.getGamepads();}catch(e){return;}gpState.forEach(g=>{g.up=g.down=g.drift=false;g.steer=0;g.throttle=0;g.brake=0;});let n=0;const inRace=G.state==='race'&&!G.paused;const tNow=performance.now();
   for(const p of pads){if(!p||!p.connected)continue;const pi=G.mode==='split'?Math.min(n,1):0;n++;const g=gpState[pi];const bt=i=>!!(p.buttons[i]&&(p.buttons[i].pressed||p.buttons[i].value>0.3));
-    const dz=x=>Math.abs(x)>0.15?(x-Math.sign(x)*0.15)/0.85:0;const lx=dz(p.axes[0]||0),rx=dz(p.axes[2]||0);const ax=Math.abs(rx)>Math.abs(lx)?rx:lx;let steer=-ax;if(bt(14))steer=1;if(bt(15))steer=-1;if(steer)g.steer=clamp(steer,-1,1);
-    const ly=dz(p.axes[1]||0);const trig=b=>!b?0:(b.value>0?b.value:(b.pressed?1:0));const rt=trig(p.buttons[7]),lt=trig(p.buttons[6]);const th=Math.max(rt,bt(0)?1:0,-ly),br=Math.max(lt,bt(1)?1:0,ly);if(th>g.throttle)g.throttle=th;if(br>g.brake)g.brake=br;g.up=g.throttle>0.05;g.down=g.brake>0.05;if(bt(5)||bt(4)||bt(2))g.drift=true;
-    const prev=gpPrev[p.index]||{};const now={item:bt(3),reset:bt(8),start:bt(9),a:bt(0)};
-    if(now.item&&!prev.item)inputs[pi].itemPressed=true;if(now.reset&&!prev.reset)inputs[pi].reset=true;
-    if(now.start&&!prev.start){if(G.state==='results')$('btnAgain').click();else togglePause();}
-    if(now.a&&!prev.a&&G.state==='results')$('btnAgain').click();
+    const dz=x=>Math.abs(x)>0.15?(x-Math.sign(x)*0.15)/0.85:0;const lx=dz(p.axes[0]||0),rx=dz(p.axes[2]||0),ly=dz(p.axes[1]||0),ry=dz(p.axes[3]||0);
+    const prev=gpPrev[p.index]||{};const now={item:bt(3),reset:bt(8),start:bt(9),a:bt(0),b:bt(1)};
+    if(inRace){
+      const ax=Math.abs(rx)>Math.abs(lx)?rx:lx;let steer=-ax;if(bt(14))steer=1;if(bt(15))steer=-1;if(steer)g.steer=clamp(steer,-1,1);
+      const trig=b=>!b?0:(b.value>0?b.value:(b.pressed?1:0));const rt=trig(p.buttons[7]),lt=trig(p.buttons[6]);const th=Math.max(rt,bt(0)?1:0,-ly),br=Math.max(lt,bt(1)?1:0,ly);if(th>g.throttle)g.throttle=th;if(br>g.brake)g.brake=br;g.up=g.throttle>0.05;g.down=g.brake>0.05;
+      if(now.item&&!prev.item)inputs[pi].itemPressed=true;if(now.reset&&!prev.reset)inputs[pi].reset=true;
+      if(now.start&&!prev.start)togglePause();}
+    else{
+      const sx=Math.abs(rx)>Math.abs(lx)?rx:lx,sy=Math.abs(ry)>Math.abs(ly)?ry:ly;const dirX=bt(15)?1:bt(14)?-1:(sx>0.55?1:sx<-0.55?-1:0);const dirY=bt(13)?1:bt(12)?-1:(sy>0.55?1:sy<-0.55?-1:0);
+      menuDir(p.index,dirX,dirY,tNow);
+      if(now.a&&!prev.a)menuA();if(now.b&&!prev.b)menuB();if(now.start&&!prev.start)menuStart();}
     gpPrev[p.index]=now;}}
+// ---------- controller navigation for menus: focus ring, spatial moves, A / B / Start, and letter picking in inputs
+const MENU_PANELS=['pause','results','lobby','online','pick','menu'];
+function activePanel(){for(const id of MENU_PANELS){const el=$(id);if(el&&getComputedStyle(el).display!=='none')return el;}return null;}
+function focusables(panel){return [...panel.querySelectorAll('button,.card,input')].filter(e=>e.offsetParent!==null&&!e.disabled&&!e.classList.contains('dis')&&e.style.display!=='none');}
+let gpFocusEl=null,gpEdit=null;const gpRep={};
+function gpFocus(el){if(gpFocusEl)gpFocusEl.classList.remove('gpfocus');gpFocusEl=el;if(el){el.classList.add('gpfocus');try{el.scrollIntoView({block:'nearest',inline:'nearest'});}catch(e){}}}
+function menuDir(padIndex,dx,dy,tNow){const r=gpRep[padIndex]||(gpRep[padIndex]={dx:0,dy:0,next:0});
+  if(!dx&&!dy){r.dx=r.dy=0;return;}const fresh=dx!==r.dx||dy!==r.dy;if(!fresh&&tNow<r.next)return;r.dx=dx;r.dy=dy;r.next=tNow+(fresh?340:120);
+  if(gpEdit){editMove(dx,dy);return;}menuMove(dx,dy);}
+function menuMove(dx,dy){const panel=activePanel();if(!panel)return;const list=focusables(panel);if(!list.length)return;
+  if(!gpFocusEl||!list.includes(gpFocusEl)){gpFocus(list[0]);return;}
+  const r0=gpFocusEl.getBoundingClientRect();const cx=r0.left+r0.width/2,cy=r0.top+r0.height/2;let best=null,bs=1e9;
+  for(const el of list){if(el===gpFocusEl)continue;const r=el.getBoundingClientRect();const ex=r.left+r.width/2,ey=r.top+r.height/2;const ddx=ex-cx,ddy=ey-cy;
+    const along=dx*ddx+dy*ddy;if(along<6)continue;const perp=Math.abs(dx?ddy:ddx);const score=along+perp*2.2;if(score<bs){bs=score;best=el;}}
+  if(best)gpFocus(best);}
+function menuA(){if(gpEdit){endEdit(true);return;}const panel=activePanel();if(!panel)return;const list=focusables(panel);if(!gpFocusEl||!list.includes(gpFocusEl)){if(list.length)gpFocus(list[0]);return;}
+  const el=gpFocusEl;if(el.tagName==='INPUT'){beginEdit(el);return;}const idx=list.indexOf(el);const before=panel.id;el.click();
+  setTimeout(()=>{const p=activePanel();if(!p)return;const l=focusables(p);if(!l.length){gpFocus(null);return;}if(p.id!==before){gpFocus(l[0]);}else if(!gpFocusEl||!document.contains(gpFocusEl)||!p.contains(gpFocusEl)){gpFocus(l[Math.min(idx,l.length-1)]);}},40);}
+function menuB(){if(gpEdit){endEdit(false);return;}const panel=activePanel();if(!panel)return;const back={pause:'btnResume',pick:'btnBack',online:'btnOnlineBack',lobby:'btnLeave',results:'btnMenu'}[panel.id];if(back){$(back).click();setTimeout(()=>{const p=activePanel();if(p){const l=focusables(p);if(l.length)gpFocus(l[0]);}},40);}}
+function menuStart(){if(gpEdit){endEdit(true);return;}const panel=activePanel();if(!panel)return;const primary={pause:'btnResume',results:'btnAgain',lobby:'btnLobbyStart',pick:'btnRace',online:'btnJoin',menu:'btnSolo'}[panel.id];const el=primary&&$(primary);if(el&&el.offsetParent!==null&&el.style.display!=='none'){const before=panel.id;el.click();setTimeout(()=>{const p=activePanel();if(p&&p.id!==before){const l=focusables(p);gpFocus(l.length?l[0]:null);}},40);}}
+const CHARSETS={code:'ABCDEFGHJKLMNPQRSTUVWXYZ23456789',name:'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 '};
+function beginEdit(el){const isCode=el.id==='netCode';const set=isCode?CHARSETS.code:CHARSETS.name;const max=isCode?5:12;let v=el.value||'';if(isCode){v=v.toUpperCase().replace(/[^A-Z0-9]/g,'');while(v.length<5)v+='A';v=v.slice(0,5);}else if(!v)v='Racer';el.value=v;
+  gpEdit={el,pos:0,set,max};el.classList.add('gpedit');try{el.focus();el.setSelectionRange(0,1);}catch(e){}Net.status('Up / down changes the letter, left / right moves, A confirms, B cancels.');}
+function editMove(dx,dy){const e=gpEdit,el=e.el;let v=el.value;
+  if(dx){let np=e.pos+dx;if(np>=v.length&&v.length<e.max&&dx>0){v+=e.set[0];el.value=v;}e.pos=clamp(np,0,Math.max(0,Math.min(v.length-1,e.max-1)));}
+  if(dy){const ch=v[e.pos]||e.set[0];let i=e.set.indexOf(ch);if(i<0)i=0;i=(i-dy+e.set.length)%e.set.length;v=v.slice(0,e.pos)+e.set[i]+v.slice(e.pos+1);el.value=v;}
+  try{el.focus();el.setSelectionRange(e.pos,e.pos+1);}catch(err){}}
+function endEdit(commit){if(!gpEdit)return;const el=gpEdit.el;el.classList.remove('gpedit');if(el.id==='netName')el.value=el.value.trim();el.blur();gpEdit=null;Net.status('');if(commit&&el.id==='netCode')gpFocus($('btnJoin'));}
 function padsFor(pi){const out=[];if(!navigator.getGamepads)return out;let pads;try{pads=navigator.getGamepads();}catch(e){return out;}let n=0;for(const p of pads){if(!p||!p.connected)continue;const idx=G.mode==='split'?Math.min(n,1):0;n++;if(idx===pi||G.mode!=='split')out.push(p);}return out;}
 function rumble(pi,strong,weak,ms){for(const p of padsFor(pi)){const a=p.vibrationActuator;if(a&&a.playEffect){try{a.playEffect('dual-rumble',{startDelay:0,duration:ms,strongMagnitude:strong,weakMagnitude:weak}).catch(()=>{});}catch(e){}}}}
 let toastT=null;function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),3200);}

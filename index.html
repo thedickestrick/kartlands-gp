@@ -50,9 +50,14 @@
   #hud{display:none;--posSize:clamp(48px,9vw,96px);--msgSize:clamp(48px,12vw,140px);--boxSize:92px;--boxFont:52px;--mapSize:170px;--speedSize:clamp(28px,5vw,48px);--lapSize:clamp(16px,2.6vw,24px);--standTop:150px;--standFont:13px}
   #hud.split{--posSize:clamp(30px,5vw,56px);--msgSize:clamp(28px,6vw,72px);--boxSize:62px;--boxFont:34px;--mapSize:110px;--speedSize:clamp(20px,3vw,30px);--lapSize:clamp(13px,1.8vw,17px);--standTop:96px;--standFont:11px}
   .phud{position:absolute;left:0;right:0;top:0;bottom:0}
-  #hud.split .phud:nth-child(1){bottom:50%}
-  #hud.split .phud:nth-child(2){top:50%}
+  #hud.split .phud.v0{bottom:50%}
+  #hud.split .phud.v1{top:50%}
   #hud.split::after{content:"";position:absolute;left:0;right:0;top:calc(50% - 2px);height:4px;background:var(--navy);box-shadow:0 0 12px rgba(0,0,0,.6)}
+  #hud.split.vsplit .phud.v0{bottom:0;right:50%}
+  #hud.split.vsplit .phud.v1{top:0;left:50%}
+  #hud.split.vsplit::after{top:0;bottom:0;left:calc(50% - 2px);right:auto;width:4px;height:auto}
+  #hud.split.vsplit{--standTop:130px}
+  .btn.ghost.sel{border-color:var(--sun);color:var(--sun);box-shadow:0 0 0 2px var(--sun) inset}
   .hudbox{position:absolute;font-family:var(--display);color:var(--cream);text-shadow:2px 2px 0 rgba(0,0,0,.6)}
   .pos{left:24px;top:14px;font-size:var(--posSize);line-height:1;color:var(--sun);text-shadow:4px 4px 0 var(--coral),7px 7px 0 rgba(0,0,0,.4)}
   .pos sup{font-size:.35em;vertical-align:top;margin-left:2px;color:var(--cream)}
@@ -179,6 +184,10 @@
       <div class="plabel">Player 2 · Arrow keys</div>
       <div class="grid" id="chars2"></div>
     </div>
+    <div id="splitWrap" style="display:none">
+      <div class="plabel">Screen split</div>
+      <div class="row" style="margin:4px 0 18px"><button class="btn ghost splitopt" data-dir="h">Top / bottom</button><button class="btn ghost splitopt" data-dir="v">Side by side</button></div>
+    </div>
     <div class="eyebrow">Step 2 of 2</div>
     <h2>Choose a circuit</h2>
     <div class="grid" id="tracks"></div>
@@ -232,6 +241,7 @@
     <h2>Paused</h2>
     <div class="row" style="justify-content:center">
       <button class="btn" id="btnResume">Resume</button>
+      <button class="btn ghost" id="btnPauseSplit" style="display:none">Split: side by side</button>
       <button class="btn ghost" id="btnQuit">Quit to menu</button>
     </div>
   </div>
@@ -597,7 +607,7 @@ function updateParticles(dt){for(let i=0;i<PMAX;i++){const d=pData[i];if(d.life>
 scene.add(particles);particles.setColorAt(0,new THREE.Color(1,1,1));
 
 // ============================================================ game state
-const G={state:'menu',mode:'solo',karts:[],players:[],views:[],player:null,projectiles:[],hazards:[],time:0,raceTime:-3.6,countStep:4,selChars:[0,2],selTrack:0,standings:[],finishOrder:[],resultsShown:false,lastFrame:0,paused:false};
+const G={state:'menu',mode:'solo',splitDir:'h',karts:[],players:[],views:[],player:null,projectiles:[],hazards:[],time:0,raceTime:-3.6,countStep:4,selChars:[0,2],selTrack:0,standings:[],finishOrder:[],resultsShown:false,lastFrame:0,paused:false};
 const mkInput=()=>({up:false,down:false,left:false,right:false,drift:false,item:false,itemPressed:false,reset:false});
 const inputs=[mkInput(),mkInput()];const input=inputs[0];
 const KM_SOLO={KeyW:[0,'up'],ArrowUp:[0,'up'],KeyS:[0,'down'],ArrowDown:[0,'down'],KeyA:[0,'left'],ArrowLeft:[0,'left'],KeyD:[0,'right'],ArrowRight:[0,'right'],ShiftLeft:[0,'drift'],ShiftRight:[0,'drift'],Space:[0,'drift'],KeyE:[0,'item'],ControlLeft:[0,'item'],ControlRight:[0,'item'],Enter:[0,'item'],KeyR:[0,'reset']};
@@ -668,9 +678,11 @@ const cams=[camera,new THREE.PerspectiveCamera(70,1,0.1,900)];
 function buildHUD(){const d=document.createElement('div');d.className='phud';
   d.innerHTML='<div class="pos hudbox">1<sup>st</sup></div><div class="lap hudbox">LAP <b>1</b>/3</div><div class="ptag"></div><div class="timer hudbox">0:00.00</div><div class="itembox hudbox"></div><div class="itemname hudbox"></div><div class="standings"></div><div class="speed hudbox">0<small>KM/H</small></div><div class="wrong hudbox">WRONG WAY!</div><div class="msg hudbox"></div><div class="sub hudbox"></div><div class="boostbar"><b></b></div><canvas class="minimap" width="510" height="510"></canvas>';
   $('hud').appendChild(d);const el={};['pos','lap','ptag','timer','itembox','itemname','standings','speed','wrong','msg','sub','boostbar','minimap'].forEach(c=>el[c]=d.querySelector('.'+c));return {root:d,el};}
+function setSplitDir(d){G.splitDir=d==='v'?'v':'h';try{localStorage.setItem('kgp-split',G.splitDir);}catch(e){}$('hud').classList.toggle('vsplit',G.splitDir==='v');document.querySelectorAll('.splitopt').forEach(b=>b.classList.toggle('sel',b.dataset.dir===G.splitDir));$('btnPauseSplit').textContent='Split: '+(G.splitDir==='v'?'side by side':'top / bottom');}
+try{G.splitDir=localStorage.getItem('kgp-split')==='v'?'v':'h';}catch(e){}
 function setupViews(){G.views.forEach(v=>v.hud.root.remove());G.views=[];
-  G.players.forEach((k,i)=>{const hud=buildHUD();const v={i,kart:k,cam:cams[i],camPos:new THREE.Vector3(),camLook:new THREE.Vector3(),shake:0,hud,mx:hud.el.minimap.getContext('2d'),msgT:0,msgTimed:false,hudTick:i*0.12};k.view=v;G.views.push(v);});
-  $('hud').classList.toggle('split',G.views.length>1);}
+  G.players.forEach((k,i)=>{const hud=buildHUD();hud.root.classList.add('v'+i);const v={i,kart:k,cam:cams[i],camPos:new THREE.Vector3(),camLook:new THREE.Vector3(),shake:0,hud,mx:hud.el.minimap.getContext('2d'),msgT:0,msgTimed:false,hudTick:i*0.12};k.view=v;G.views.push(v);});
+  $('hud').classList.toggle('split',G.views.length>1);setSplitDir(G.splitDir);}
 function disposeGroup(g){g.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material){const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>{if(m.map&&m.map!==roadTex&&m.map!==curbTex&&m.map!==checkerTex)m.map.dispose();m.dispose();});}});}
 
 // ============================================================ track queries
@@ -838,7 +850,7 @@ function updateCamera(v,dt,snap){const k=v.kart,cam=v.cam;_f.set(Math.sin(k.head
   const a=snap?1:1-Math.exp(-6*dt);v.camPos.lerp(_cp,a);
   _t.copy(k.pos).addScaledVector(_f,5);_t.y+=1.4;v.camLook.lerp(_t,snap?1:1-Math.exp(-10*dt));
   if(v.shake>0){v.shake=Math.max(0,v.shake-dt*2);const s=v.shake*.5;v.camPos.x+=rand(-s,s);v.camPos.y+=rand(-s,s);}
-  cam.position.copy(v.camPos);cam.lookAt(v.camLook);const fovT=70+(k.boost>0?14:0)+Math.min(k.speed,90)*0.08;cam.fov=lerp(cam.fov,fovT,1-Math.exp(-5*dt));cam.updateProjectionMatrix();}
+  cam.position.copy(v.camPos);cam.lookAt(v.camLook);const fovT=70+(k.boost>0?14:0)+Math.min(k.speed,90)*0.08+(G.views.length>1&&G.splitDir==='v'?10:0);cam.fov=lerp(cam.fov,fovT,1-Math.exp(-5*dt));cam.updateProjectionMatrix();}
 function showMsg(v,t,sub,dur){const m=v.hud.el.msg,s=v.hud.el.sub;m.textContent=t;m.classList.toggle('show',!!t);s.textContent=sub||'';s.classList.toggle('show',!!sub);v.msgTimed=!!dur;v.msgT=dur||0;}
 function drawMinimap(v){const mm=v.hud.el.minimap,mx=v.mx;const b=track.bounds;const w=mm.width,h=mm.height;const u=w/170;mx.clearRect(0,0,w,h);const pad=12*u;const sx=(w-pad*2)/(b.maxX-b.minX),sz=(h-pad*2)/(b.maxZ-b.minZ);const s=Math.min(sx,sz);
   const ox=pad+((w-pad*2)-(b.maxX-b.minX)*s)/2,oz=pad+((h-pad*2)-(b.maxZ-b.minZ)*s)/2;const X=x=>ox+(x-b.minX)*s,Z=z=>oz+(z-b.minZ)*s;
@@ -1040,7 +1052,7 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min(0.05,(now-G.l
 const _sz=new THREE.Vector2();
 function render(){renderer.getSize(_sz);const w=_sz.x,h=_sz.y;
   if(G.views.length>1&&(G.state==='race'||G.state==='results')){renderer.setScissorTest(true);
-    G.views.forEach((v,i)=>{const y=i===0?Math.ceil(h/2):0,hh=Math.floor(h/2);renderer.setViewport(0,y,w,hh);renderer.setScissor(0,y,w,hh);v.cam.aspect=w/hh;v.cam.updateProjectionMatrix();
+    G.views.forEach((v,i)=>{let x=0,y=0,vw=w,vh=h;if(G.splitDir==='v'){vw=Math.floor(w/2);x=i===0?0:w-vw;}else{vh=Math.floor(h/2);y=i===0?h-vh:0;}renderer.setViewport(x,y,vw,vh);renderer.setScissor(x,y,vw,vh);v.cam.aspect=vw/vh;v.cam.updateProjectionMatrix();
       sky.position.copy(v.cam.position);sun.position.set(v.kart.pos.x+60,v.kart.pos.y+110,v.kart.pos.z+40);sun.target.position.copy(v.kart.pos);sun.target.updateMatrixWorld();renderer.render(scene,v.cam);});
     renderer.setScissorTest(false);renderer.setViewport(0,0,w,h);}
   else{const v=G.views[0];const cam=v&&(G.state==='race'||G.state==='results')?v.cam:camera;if(v&&cam===v.cam){sun.position.set(v.kart.pos.x+60,v.kart.pos.y+110,v.kart.pos.z+40);sun.target.position.copy(v.kart.pos);}
@@ -1092,7 +1104,7 @@ window.__kartDebug={G,inputs,input,tick,Net,pollGamepads,gpState,get track(){ret
 function buildCharGrid(container,p){const cc=$(container);cc.innerHTML='';const other=G.mode==='split'?G.selChars[1-p]:-1;CHARACTERS.forEach((ch,i)=>{const d=document.createElement('div');d.className='card'+(i===G.selChars[p]?' sel':'')+(i===other?' dis':'');d.tabIndex=0;const hex='#'+new THREE.Color(ch.color).getHexString();
   d.innerHTML=`<div class="swatch" style="background:${hex}"><i></i><i></i></div><div class="cname">${ch.name}</div>`+['speed','accel','handling'].map(s=>`<div class="stat"><span>${s}</span><div class="bar"><b style="width:${Math.round((ch[s]-.8)/.35*100)}%"></b></div></div>`).join('');
   d.onclick=()=>{G.selChars[p]=i;Audio.init();Audio.sfx('ui');buildMenus();};d.onkeydown=e=>{if(e.key==='Enter'||e.key===' ')d.onclick();};cc.appendChild(d);});}
-function buildMenus(){const split=G.mode==='split';buildCharGrid('chars',0);$('p1label').style.display=split?'block':'none';$('p2wrap').style.display=split?'block':'none';if(split)buildCharGrid('chars2',1);
+function buildMenus(){const split=G.mode==='split';buildCharGrid('chars',0);$('p1label').style.display=split?'block':'none';$('p2wrap').style.display=split?'block':'none';$('splitWrap').style.display=split?'block':'none';setSplitDir(G.splitDir);if(split)buildCharGrid('chars2',1);
   $('pickEyebrow').textContent=split?'2-player split screen':'Solo race';
   const tc=$('tracks');tc.innerHTML='';TRACKS.forEach((t,i)=>{const d=document.createElement('div');d.className='card tcard'+(i===G.selTrack?' sel':'');d.tabIndex=0;
   d.innerHTML=`<div class="swatch" style="background:linear-gradient(180deg,#${new THREE.Color(t.sky).getHexString()} 45%,#${new THREE.Color(t.ground).getHexString()} 45%)"></div><div class="cname">${t.name}</div><small>${t.blurb}</small>`;
@@ -1117,7 +1129,9 @@ $('btnResume').onclick=()=>togglePause();
 $('btnQuit').onclick=()=>{G.paused=false;$('pause').style.display='none';$('hud').style.display='none';G.state='menu';Audio.stopMusic();Audio.engine(0,false,false);$('menu').style.display='flex';};
 $('mute').onclick=()=>{Audio.init();Audio.toggle();};
 $('btnQuality').onclick=()=>{Audio.init();Audio.sfx('ui');quality=QUALITY_ORDER[(QUALITY_ORDER.indexOf(quality)+1)%QUALITY_ORDER.length];applyQuality();};
-function togglePause(){if(G.state!=='race'||Net.role)return;G.paused=!G.paused;$('pause').style.display=G.paused?'flex':'none';if(G.paused)Audio.engine(0,false,false);}
+document.querySelectorAll('.splitopt').forEach(b=>b.onclick=()=>{Audio.init();Audio.sfx('ui');setSplitDir(b.dataset.dir);});
+$('btnPauseSplit').onclick=()=>{Audio.sfx('ui');setSplitDir(G.splitDir==='v'?'h':'v');};
+function togglePause(){if(G.state!=='race'||Net.role)return;G.paused=!G.paused;$('btnPauseSplit').style.display=G.views.length>1?'':'none';$('pause').style.display=G.paused?'flex':'none';if(G.paused)Audio.engine(0,false,false);}
 addEventListener('beforeunload',()=>{if(Net.peer)try{Net.peer.destroy();}catch(e){}});
 $('loading').textContent='Ready';
 // idle menu backdrop: the currently loaded track slowly orbits behind the menus

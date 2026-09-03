@@ -310,6 +310,21 @@ const TRACKS=[
   {id:'canyon',name:'Canyon Run',blurb:'Fifteen corners through red rock and cactus.',width:14,laps:3,scenery:'desert',
    ground:0xc98a5a,ground2:0xa86d44,sky:0xf3c27a,horizon:0xffe9c8,fog:0xe8c9a0,tree:0x5f9e4a,trunk:0,rock:0xa5553a,seed:89,
    pts:[[0,0,0],[50,0,-5],[90,4,-30],[80,8,-70],[120,10,-100],[100,14,-140],[50,12,-150],[20,8,-115],[-20,10,-130],[-60,12,-160],[-110,8,-140],[-130,4,-90],[-100,2,-55],[-120,0,-20],[-70,0,5]]},
+  {id:'planetoid',name:'Tiny Planet',blurb:'A floating road above a very small, very heavy world.',width:13,laps:3,scenery:'planetoid',noGround:true,stars:true,neon:0x8fe0c8,noRocks:true,speedMul:.94,
+   ground:0x1d2a3a,ground2:0x0d1420,sky:0x05030f,horizon:0x1a1040,fog:0x05030f,fogNear:320,fogFar:1300,tree:0,trunk:0,rock:0x6d6a75,seed:101,sunI:1.7,hemiI:.55,hemiSky:0x6060c0,sunColor:0xfff0dc,
+   pts:[[0,0,0],[60,4,-10],[100,10,-50],[80,18,-100],[30,22,-120],[-20,16,-90],[-60,20,-120],[-110,12,-100],[-130,6,-50],[-100,0,-10],[-50,-2,5]]},
+  {id:'prism',name:'Prism Run',blurb:'A glowing rainbow ribbon through the stars. Fast and slippery.',width:14,laps:3,scenery:'space',road:'rainbow',noGround:true,stars:true,neon:0xffffff,noRocks:true,speedMul:1.08,
+   ground:0x2a1a4a,ground2:0x120a26,sky:0x07041a,horizon:0x2a1560,fog:0x07041a,fogNear:320,fogFar:1300,tree:0,trunk:0,rock:0x6d6a75,seed:113,sunI:1.6,hemiI:.7,hemiSky:0x8060ff,sunColor:0xffffff,
+   pts:[[0,0,0],[80,2,0],[140,8,-30],[170,14,-90],[130,20,-140],[60,14,-150],[10,8,-120],[-40,12,-150],[-100,18,-140],[-150,10,-90],[-140,4,-30],[-80,0,5]]},
+  {id:'lagoon',name:'Lei Lagoon',blurb:'Torch-lit coast road under a smoking volcano.',width:15,laps:3,scenery:'palms',landmark:'volcano',lamps:{color:0xffa640,pole:0x6b4a2b},
+   ground:0xe6d3a3,ground2:0xc9b184,sky:0x4aa8e8,horizon:0xffe4c4,fog:0xd8ecf6,tree:0x2e9e4f,trunk:0x8b6a3e,rock:0x8a8578,seed:127,sunI:2.3,hemiI:.95,hemiSky:0xfff2dd,sunColor:0xfff2d0,
+   pts:[[0,0,0],[70,0,5],[130,3,-20],[150,6,-70],[110,4,-110],[50,2,-100],[10,0,-130],[-50,2,-140],[-110,6,-110],[-140,4,-55],[-110,0,-15],[-60,0,5]]},
+  {id:'ashfall',name:'Ashfall Gate',blurb:'Black rock, lava rivers and a tower that never stops watching.',width:13,laps:3,scenery:'lava',landmark:'spire',
+   ground:0x1a1416,ground2:0x2a1f1f,sky:0x1a0605,horizon:0x8a2a12,fog:0x24100e,fogNear:90,fogFar:520,tree:0,trunk:0,rock:0x201a1a,seed:139,sunI:.9,hemiI:.55,hemiSky:0xff6a3a,sunColor:0xffb090,
+   pts:[[0,0,0],[60,3,-5],[110,8,-40],[120,14,-95],[80,18,-130],[30,20,-110],[0,14,-140],[-50,16,-150],[-100,12,-115],[-130,6,-60],[-110,2,-15],[-55,0,3]]},
+  {id:'portals',name:'Portal Circuit',blurb:'Green gates across the road fling you forward. Aim well.',width:14,laps:3,scenery:'portals',gates:[.1,.3,.55,.8],lamps:{color:0x2bff7a,pole:0x2a3340},
+   ground:0x5a6b62,ground2:0x3f4d46,sky:0x8fd6c8,horizon:0xe8fff4,fog:0xbfe6d8,tree:0,trunk:0,rock:0x6b7a72,seed:149,sunI:2.0,hemiI:.9,hemiSky:0xdfffe8,sunColor:0xf4fff8,
+   pts:[[0,0,0],[70,0,0],[120,4,-30],[110,8,-80],[60,6,-100],[20,2,-70],[-30,4,-100],[-80,8,-130],[-130,4,-90],[-120,0,-35],[-70,0,0]]},
 ];
 const ITEMS={
   turbo:{icon:'🔥',name:'Turbo'},
@@ -414,6 +429,15 @@ function makeGroundTex(c1,c2){const S=512;const c=document.createElement('canvas
   const t=finishTex(c,true);t.repeat.set(120,120);return t;}
 function makeCheckerTex(){const c=document.createElement('canvas');c.width=128;c.height=128;const x=c.getContext('2d');for(let i=0;i<8;i++)for(let j=0;j<8;j++){x.fillStyle=(i+j)%2?'#111':'#eee';x.fillRect(i*16,j*16,16,16);}
   return finishTex(c,true);}
+function makeRainbowTex(){const S=512;const c=document.createElement('canvas');c.width=S;c.height=S;const x=c.getContext('2d');const cols=['#ff3b3b','#ff9a1f','#ffe23f','#3ddc97','#2bb3ff','#5b5bff','#c85bff'];
+  cols.forEach((col,i)=>{x.fillStyle=col;x.fillRect(Math.floor(i*S/7),0,Math.ceil(S/7)+1,S);});
+  const g=x.createLinearGradient(0,0,S,0);g.addColorStop(0,'rgba(255,255,255,.35)');g.addColorStop(.5,'rgba(255,255,255,0)');g.addColorStop(1,'rgba(255,255,255,.35)');x.fillStyle=g;x.fillRect(0,0,S,S);
+  for(let i=0;i<900;i++){x.fillStyle='rgba(255,255,255,'+(0.2+Math.random()*.6)+')';const r=1+Math.random()*2;x.fillRect(Math.random()*S,Math.random()*S,r,r);}
+  return finishTex(c,true);}
+function makeSwirlTex(){const S=256;const c=document.createElement('canvas');c.width=S;c.height=S;const x=c.getContext('2d');const cx=S/2;
+  const rg=x.createRadialGradient(cx,cx,4,cx,cx,cx);rg.addColorStop(0,'rgba(220,255,230,.95)');rg.addColorStop(.35,'rgba(60,255,140,.75)');rg.addColorStop(.8,'rgba(20,150,70,.55)');rg.addColorStop(1,'rgba(20,150,70,0)');x.fillStyle=rg;x.beginPath();x.arc(cx,cx,cx,0,Math.PI*2);x.fill();
+  x.strokeStyle='rgba(180,255,200,.55)';x.lineWidth=5;for(let arm=0;arm<3;arm++){x.beginPath();for(let t=0;t<40;t++){const a=arm*Math.PI*2/3+t*.22;const r=6+t*3;const px=cx+Math.cos(a)*r,py=cx+Math.sin(a)*r;if(t===0)x.moveTo(px,py);else x.lineTo(px,py);}x.stroke();}
+  const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;}
 const roadTex=makeRoadTex(),curbTex=makeCurbTex(),checkerTex=makeCheckerTex();
 
 // ============================================================ track
@@ -432,17 +456,22 @@ function buildTrack(def){
   for(let i=0;i<N;i++){const u=i/N;const p=curve.getPointAt(u);const t=curve.getTangentAt(u).normalize();const r=new THREE.Vector3().crossVectors(t,up).normalize();samples.push({p,t,r,i});}
   const W=def.width,hw=W/2;
   // road
-  const road=new THREE.Mesh(buildRibbon(samples,-hw,hw,0.06,0.06,segLen,9),new THREE.MeshStandardMaterial({map:roadTex,roughness:.95}));road.receiveShadow=true;group.add(road);
-  const curbMat=new THREE.MeshStandardMaterial({map:curbTex,roughness:.8});
+  const roadMat=def.road==='rainbow'?(()=>{const t=makeRainbowTex();return new THREE.MeshStandardMaterial({map:t,emissive:0xffffff,emissiveMap:t,emissiveIntensity:.45,roughness:.5,metalness:.1});})():new THREE.MeshStandardMaterial({map:roadTex,roughness:.95});
+  const road=new THREE.Mesh(buildRibbon(samples,-hw,hw,0.06,0.06,segLen,9),roadMat);road.receiveShadow=true;group.add(road);
+  const curbMat=def.neon?new THREE.MeshStandardMaterial({color:def.neon,emissive:def.neon,emissiveIntensity:1.4,roughness:.4}):new THREE.MeshStandardMaterial({map:curbTex,roughness:.8});
   const cl=new THREE.Mesh(buildRibbon(samples,-hw-1.1,-hw+0.05,0.09,0.09,segLen,2.4),curbMat);cl.receiveShadow=true;group.add(cl);
   const cr=new THREE.Mesh(buildRibbon(samples,hw-0.05,hw+1.1,0.09,0.09,segLen,2.4),curbMat);cr.receiveShadow=true;group.add(cr);
   // shoulder & skirt
-  const gtex=makeGroundTex(def.ground,def.ground2);const gmat=new THREE.MeshStandardMaterial({map:gtex,roughness:1});
-  const sh=new THREE.Mesh(buildRibbon(samples,-hw-OFFROAD_W-4,hw+OFFROAD_W+4,0,0,segLen,6),gmat);sh.receiveShadow=true;group.add(sh);
-  const skL=new THREE.Mesh(buildRibbon(samples,-hw-OFFROAD_W-30,-hw-OFFROAD_W-4,-1.5,0,segLen,6),gmat);group.add(skL);
-  const skR=new THREE.Mesh(buildRibbon(samples,hw+OFFROAD_W+4,hw+OFFROAD_W+30,0,-1.5,segLen,6),gmat);group.add(skR);
-  // ground plane
-  const gtex2=makeGroundTex(def.ground2,def.ground);const ground=new THREE.Mesh(new THREE.PlaneGeometry(1600,1600),new THREE.MeshStandardMaterial({map:gtex2,roughness:1}));ground.rotation.x=-Math.PI/2;ground.position.y=-1.5;ground.receiveShadow=true;group.add(ground);
+  if(def.noGround){const gmat=new THREE.MeshStandardMaterial({color:def.ground,roughness:.6,metalness:.2,transparent:true,opacity:.9});
+    const sh=new THREE.Mesh(buildRibbon(samples,-hw-OFFROAD_W-1.5,hw+OFFROAD_W+1.5,-.05,-.05,segLen,6),gmat);sh.receiveShadow=true;group.add(sh);
+    const under=new THREE.Mesh(buildRibbon(samples,-hw-OFFROAD_W-1.5,hw+OFFROAD_W+1.5,-1.6,-1.6,segLen,6),new THREE.MeshStandardMaterial({color:def.ground2,roughness:.7,side:THREE.DoubleSide}));group.add(under);}
+  else{const gtex=makeGroundTex(def.ground,def.ground2);const gmat=new THREE.MeshStandardMaterial({map:gtex,roughness:1});
+    const sh=new THREE.Mesh(buildRibbon(samples,-hw-OFFROAD_W-4,hw+OFFROAD_W+4,0,0,segLen,6),gmat);sh.receiveShadow=true;group.add(sh);
+    const skL=new THREE.Mesh(buildRibbon(samples,-hw-OFFROAD_W-30,-hw-OFFROAD_W-4,-1.5,0,segLen,6),gmat);group.add(skL);
+    const skR=new THREE.Mesh(buildRibbon(samples,hw+OFFROAD_W+4,hw+OFFROAD_W+30,0,-1.5,segLen,6),gmat);group.add(skR);
+    const gtex2=makeGroundTex(def.ground2,def.ground);const ground=new THREE.Mesh(new THREE.PlaneGeometry(1600,1600),new THREE.MeshStandardMaterial({map:gtex2,roughness:1}));ground.rotation.x=-Math.PI/2;ground.position.y=-1.5;ground.receiveShadow=true;group.add(ground);}
+  if(def.stars){const n=3200;const pos=new Float32Array(n*3);const col=new Float32Array(n*3);const cxs=(samples[0].p.x),czs=(samples[0].p.z);for(let i=0;i<n;i++){const u=Math.random()*2-1,th=Math.random()*TAU;const r=Math.sqrt(1-u*u);const R=650+Math.random()*120;pos[i*3]=cxs+r*Math.cos(th)*R;pos[i*3+1]=u*R;pos[i*3+2]=czs+r*Math.sin(th)*R;const b=.6+Math.random()*.4;const tint=Math.random();col[i*3]=b*(tint<.2?1:.85);col[i*3+1]=b*.9;col[i*3+2]=b*(tint>.8?1:.9);}
+    const sg=new THREE.BufferGeometry();sg.setAttribute('position',new THREE.BufferAttribute(pos,3));sg.setAttribute('color',new THREE.BufferAttribute(col,3));const stars=new THREE.Points(sg,new THREE.PointsMaterial({size:2.2,sizeAttenuation:false,vertexColors:true,fog:false}));stars.frustumCulled=false;group.add(stars);}
   // finish line
   const fl=new THREE.Mesh(new THREE.PlaneGeometry(W,3),new THREE.MeshStandardMaterial({map:checkerTex,roughness:.9}));fl.material.map=checkerTex.clone();fl.material.map.repeat.set(W/2,1.5);fl.material.map.needsUpdate=true;
   const s0=samples[0];fl.position.copy(s0.p).add(new THREE.Vector3(0,0.1,0));fl.rotation.x=-Math.PI/2;fl.rotation.z=-Math.atan2(s0.t.x,s0.t.z);group.add(fl);
@@ -460,6 +489,10 @@ function buildTrack(def){
   let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;for(const s of samples){minX=Math.min(minX,s.p.x);maxX=Math.max(maxX,s.p.x);minZ=Math.min(minZ,s.p.z);maxZ=Math.max(maxZ,s.p.z);}
   const bounds={minX,maxX,minZ,maxZ};
   buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N);
+  // portal gates: drive through the ring for a boost
+  const gates=[];if(def.gates){const swirl=makeSwirlTex();const ringMat=new THREE.MeshStandardMaterial({color:0x2bff7a,emissive:0x1aff6a,emissiveIntensity:1.6,roughness:.3});const discMat=new THREE.MeshBasicMaterial({map:swirl,transparent:true,opacity:.85,side:THREE.DoubleSide,depthWrite:false});
+    def.gates.forEach((f,gi)=>{const i=Math.floor(f*N);const s=samples[i];const lat=[-hw*.45,0,hw*.45][gi%3];const g=new THREE.Group();const ring=new THREE.Mesh(new THREE.TorusGeometry(3.4,.28,12,40),ringMat);ring.castShadow=true;g.add(ring);const disc=new THREE.Mesh(new THREE.CircleGeometry(3.2,40),discMat);g.add(disc);
+      const p=s.p.clone().addScaledVector(s.r,lat);g.position.set(p.x,p.y+3.3,p.z);g.rotation.y=Math.atan2(s.t.x,s.t.z);group.add(g);gates.push({idx:i,lat,g,disc});});}
   // roadside pillars / banners at a few curves
   const flagMat=new THREE.MeshStandardMaterial({color:0xffd23f,roughness:.8,side:THREE.DoubleSide});
   for(let i=0;i<N;i+=Math.round(N/14)){const s=samples[i];[-1,1].forEach(sg=>{const pole=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,4,6),gateMat);const pp=s.p.clone().addScaledVector(s.r,sg*(hw+OFFROAD_W+1.5));pole.position.set(pp.x,pp.y+2,pp.z);pole.castShadow=true;group.add(pole);
@@ -469,7 +502,7 @@ function buildTrack(def){
   const coreGeo=new THREE.IcosahedronGeometry(.55,0),coreMat=new THREE.MeshStandardMaterial({color:0xffd23f,emissive:0xff9900,emissiveIntensity:.8});
   [0.14,0.36,0.6,0.84].forEach(f=>{const i=Math.floor(f*N);const s=samples[i];[-0.55,0,0.55].forEach(l=>{const g=new THREE.Group();const mesh=new THREE.Mesh(boxGeo,boxMat);mesh.castShadow=true;g.add(mesh);const core=new THREE.Mesh(coreGeo,coreMat);g.add(core);
     const p=s.p.clone().addScaledVector(s.r,l*hw);g.position.set(p.x,p.y+1.4,p.z);group.add(g);boxes.push({g,mesh,core,pos:g.position.clone(),active:true,timer:0,idx:i});});});
-  return {def,group,curve,samples,N,segLen,length,width:W,hw,boxes,bounds,startIdx:0};
+  return {def,group,curve,samples,N,segLen,length,width:W,hw,boxes,gates,bounds,startIdx:0};
 }
 // per-world instanced scenery: trees, palms, cacti and mesas, night city, volcano
 function makeWindowTex(){const c=document.createElement('canvas');c.width=128;c.height=256;const x=c.getContext('2d');x.fillStyle='#1b2130';x.fillRect(0,0,128,256);
@@ -510,6 +543,35 @@ function buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N){
     const pools=inst(new THREE.CircleGeometry(1,28),new THREE.MeshStandardMaterial({color:0xff5a1f,emissive:0xff3d00,emissiveIntensity:1.8,roughness:.35}),80,false);
     const n=place(80,hw+OFFROAD_W+6,90,(x,y,z,i)=>{const r=3+rng()*8;v.set(x,y+.02,z);sc.set(r,r*(.5+rng()*.7),1);q.setFromEuler(new THREE.Euler(-Math.PI/2,0,rng()*TAU));m.compose(v,q,sc);pools.setMatrixAt(i,m);});pools.count=n;
     const spires=inst(new THREE.ConeGeometry(1,1,7),M(def.rock,1,0,true),100);const n2=place(100,hw+OFFROAD_W+9,110,(x,y,z,i)=>{const r=2+rng()*5,h=5+rng()*18;set(spires,i,x,y+h/2-1.2,z,[r,h,r],rng()*TAU);});spires.count=n2;}
+  else if(type==='space'||type==='planetoid'){
+    const cx=(minX+maxX)/2,cz=(minZ+maxZ)/2;
+    const planetCols=[0xff9a4a,0x6fb1ff,0xd94fa0,0xffe07a,0x8fe0c8,0xb07cff];
+    for(let i=0;i<6;i++){const a=rng()*TAU,dist=380+rng()*220,r=18+rng()*40;const pm=new THREE.Mesh(new THREE.SphereGeometry(r,28,20),M(planetCols[i%planetCols.length],.8));pm.position.set(cx+Math.cos(a)*dist,-120+rng()*260,cz+Math.sin(a)*dist);group.add(pm);
+      if(i===1){const ring=new THREE.Mesh(new THREE.TorusGeometry(r*1.7,r*.12,8,48),M(0xe8dcc0,.7));ring.position.copy(pm.position);ring.rotation.x=Math.PI/2.4;group.add(ring);}}
+    const roids=inst(new THREE.DodecahedronGeometry(1,0),M(0x6d6a75,1,0,true),140);const q2=new THREE.Quaternion();const n=place(140,hw+OFFROAD_W+14,120,(x,y,z,i)=>{const sz=1.5+rng()*5;v.set(x,-40+rng()*90,z);sc.set(sz,sz*(.6+rng()*.6),sz);q2.setFromEuler(new THREE.Euler(rng()*3,rng()*3,rng()*3));m.compose(v,q2,sc);roids.setMatrixAt(i,m);});roids.count=n;
+    if(type==='planetoid'){const R=115;const planet=new THREE.Mesh(new THREE.SphereGeometry(R,48,32),M(0x3fb04a,.9));planet.position.set(cx,-R-28,cz);planet.receiveShadow=true;group.add(planet);const top=-28;
+      const wall=new THREE.Mesh(new THREE.CylinderGeometry(7,7,6,24),M(0xf3e2c0,.8));wall.position.set(cx,top+3,cz);wall.castShadow=true;group.add(wall);const dome=new THREE.Mesh(new THREE.SphereGeometry(7.4,28,16,0,TAU,0,Math.PI/2),M(0xff5c4d,.6));dome.position.set(cx,top+6,cz);dome.castShadow=true;group.add(dome);
+      const door=new THREE.Mesh(new THREE.BoxGeometry(2.4,4,.4),M(0x3a2a1a,.9));door.position.set(cx,top+2,cz+7);group.add(door);
+      for(let i=0;i<4;i++){const a=i/4*TAU+.6;const tx=cx+Math.cos(a)*22,tz=cz+Math.sin(a)*22;const ty=top-2.2;const tr=new THREE.Mesh(new THREE.CylinderGeometry(.5,.7,6,10),M(0x6b4a2b));tr.position.set(tx,ty+3,tz);group.add(tr);const lf=new THREE.Mesh(new THREE.SphereGeometry(4.2,18,14),M(0x2f8a3a,.9));lf.position.set(tx,ty+8,tz);lf.castShadow=true;group.add(lf);}
+      const path=new THREE.Mesh(new THREE.RingGeometry(9,28,48),M(0xd9c28f,1));path.rotation.x=-Math.PI/2;path.position.set(cx,top+.05,cz);group.add(path);}}
+  else if(type==='portals'){
+    const rings=inst(new THREE.TorusGeometry(2.6,.22,10,32),new THREE.MeshStandardMaterial({color:0x2bff7a,emissive:0x1aff6a,emissiveIntensity:1.3,roughness:.3}),60,false);const q3=new THREE.Quaternion();
+    const n=place(60,hw+OFFROAD_W+8,110,(x,y,z,i)=>{const sz=.8+rng()*1.6;v.set(x,y+4+rng()*22,z);sc.set(sz,sz,sz);q3.setFromEuler(new THREE.Euler(rng()*1.2-.6,rng()*TAU,0));m.compose(v,q3,sc);rings.setMatrixAt(i,m);});rings.count=n;
+    const crystals=inst(new THREE.ConeGeometry(1,1,6),new THREE.MeshStandardMaterial({color:0x7ff0ff,emissive:0x1fb8c8,emissiveIntensity:.6,roughness:.2,metalness:.3,flatShading:true}),160);
+    const n2=place(160,hw+OFFROAD_W+4,90,(x,y,z,i)=>{const r=1+rng()*2.5,h=3+rng()*10;set(crystals,i,x,y+h/2-.8,z,[r,h,r],rng()*TAU);});crystals.count=n2;
+    const pods=inst(new THREE.SphereGeometry(1,20,14),M(0xcfd8e6,.4,.5),24);const n3=place(24,hw+OFFROAD_W+16,120,(x,y,z,i)=>{const r=5+rng()*9;set(pods,i,x,y+r*.55,z,[r,r*.55,r],rng()*TAU);});pods.count=n3;}
+  // landmarks and roadside lights shared across worlds
+  if(def.landmark==='volcano'){const cx=(minX+maxX)/2,cz=(minZ+maxZ)/2;const vx=minX-190,vz=cz;const cone=new THREE.Mesh(new THREE.ConeGeometry(120,110,32,1,true),M(0x4a3a30,1,0,true));cone.position.set(vx,-1.5+55,vz);cone.castShadow=true;group.add(cone);
+    const crater=new THREE.Mesh(new THREE.CylinderGeometry(16,22,10,24),M(0x2a1e18,1));crater.position.set(vx,104,vz);group.add(crater);const lava=new THREE.Mesh(new THREE.CircleGeometry(14,32),new THREE.MeshStandardMaterial({color:0xff6a1f,emissive:0xff3d00,emissiveIntensity:2,roughness:.3}));lava.rotation.x=-Math.PI/2;lava.position.set(vx,109.2,vz);group.add(lava);
+    const smoke=new THREE.Mesh(new THREE.SphereGeometry(18,20,14),new THREE.MeshStandardMaterial({color:0x777777,transparent:true,opacity:.35,roughness:1}));smoke.position.set(vx,130,vz);group.add(smoke);}
+  if(def.landmark==='spire'){const cx=(minX+maxX)/2;const sx=cx,sz2=minZ-170;const tower=new THREE.Mesh(new THREE.CylinderGeometry(9,16,150,8),M(0x14100f,.9,.1,true));tower.position.set(sx,-1.5+75,sz2);tower.castShadow=true;group.add(tower);
+    [[26,-1.5+20,.7],[-30,-1.5+14,.5],[8,-1.5+30,.35]].forEach(([ox,h,scl])=>{const b=new THREE.Mesh(new THREE.ConeGeometry(18*scl+6,60*scl+20,7),M(0x1b1614,1,0,true));b.position.set(sx+ox,h,sz2+ox*.4);group.add(b);});
+    const horns=new THREE.Mesh(new THREE.ConeGeometry(11,26,8),M(0x14100f,.9,.1,true));horns.position.set(sx,-1.5+160,sz2);group.add(horns);
+    const beacon=new THREE.Mesh(new THREE.SphereGeometry(6.5,20,14),new THREE.MeshStandardMaterial({color:0xff3a1a,emissive:0xff2200,emissiveIntensity:3,roughness:.2}));beacon.position.set(sx,-1.5+178,sz2);group.add(beacon);
+    const glow=new THREE.Mesh(new THREE.SphereGeometry(12,20,14),new THREE.MeshBasicMaterial({color:0xff4a1a,transparent:true,opacity:.22}));glow.position.copy(beacon.position);group.add(glow);}
+  if(def.lamps){const poles=inst(new THREE.CylinderGeometry(.09,.12,4.2,8),M(def.lamps.pole||0x3a3f4a,.7,.2),96);const lamps=inst(new THREE.SphereGeometry(.36,12,10),new THREE.MeshStandardMaterial({color:def.lamps.color,emissive:def.lamps.color,emissiveIntensity:2.2}),96,false);let c=0;
+    for(let i=0;i<N&&c<96;i+=Math.round(N/48)){const s=samples[i];const sg=c%2?1:-1;const p=s.p.clone().addScaledVector(s.r,sg*(hw+OFFROAD_W+2));set(poles,c,p.x,p.y+2.1,p.z,[1,1,1],0);set(lamps,c,p.x,p.y+4.4,p.z,[1,1,1],0);c++;}poles.count=lamps.count=c;}
+  if(def.noRocks)return;
   // rocks everywhere
   const rocks=inst(new THREE.DodecahedronGeometry(1.2,0),M(def.rock,1,0,true),110);const rq=new THREE.Quaternion();
   let placed=0,tries=0;while(placed<110&&tries<3000){tries++;const x=rand2(rng,minX-60,maxX+60),z=rand2(rng,minZ-60,maxZ+60);if(!farFromTrack(x,z,hw+OFFROAD_W+2))continue;const s=.6+rng()*1.6;const y=nearTrackY(samples,x,z);v.set(x,y+s*.4-.2,z);sc.set(s,s*.7,s);rq.setFromEuler(new THREE.Euler(rng(),rng()*TAU,rng()));m.compose(v,rq,sc);rocks.setMatrixAt(placed,m);placed++;}
@@ -627,7 +689,7 @@ document.querySelectorAll('.tb').forEach(b=>{const k=b.dataset.k;const map={left
 
 function makeKart(ch,isPlayer,i,pIndex){const model=buildKartModel(ch);scene.add(model.g);
   return {ch,isPlayer,i,pIndex,view:null,remote:false,puppet:false,netId:null,name:null,netEv:[],netInput:{u:0,d:0,l:0,r:0,dr:0,it:0,rs:0},lastItemCount:0,lastResetCount:0,model,pos:new THREE.Vector3(),heading:0,speed:0,steerVis:0,idx:0,lastIdx:0,lap:0,u:0,offroad:false,drift:false,driftDir:0,driftCharge:0,driftCd:0,boost:0,spin:0,spinAng:0,shrink:0,shield:0,
-    item:null,rolling:0,itemTimer:0,finished:false,finishTime:null,lapStart:0,bestLap:null,aiOffset:0,aiOffsetT:0,aiMul:1,skill:rand(.96,1.04),rank:1,wrongT:0,wheelSpin:0,hitCd:0,bumpCd:0,lapTimes:[]};}
+    gateCd:0,item:null,rolling:0,itemTimer:0,finished:false,finishTime:null,lapStart:0,bestLap:null,aiOffset:0,aiOffsetT:0,aiMul:1,skill:rand(.96,1.04),rank:1,wrongT:0,wheelSpin:0,hitCd:0,bumpCd:0,lapTimes:[]};}
 
 function placeKarts(){const N=track.N;G.karts.forEach((k,n)=>{const row=Math.floor(n/2),col=n%2;const back=6+row*5.5;let idx=(N-Math.round(back/track.segLen)+N)%N;const s=track.samples[idx];
   k.pos.copy(s.p).addScaledVector(s.r,(col?1:-1)*track.hw*.42);k.heading=Math.atan2(s.t.x,s.t.z);k.idx=idx;k.lastIdx=idx;k.lap=0;k.speed=0;k.item=null;k.rolling=0;k.boost=0;k.spin=0;k.shrink=0;k.shield=0;k.drift=false;k.finished=false;k.finishTime=null;k.bestLap=null;k.lapTimes=[];k.lapStart=0;k.aiOffset=rand(-.4,.4)*track.hw;
@@ -707,7 +769,7 @@ function stepKart(k,inp,dt){
   if(G.raceTime<0){inp={throttle:0,steer:0,drift:false};}
   if(k.spin>0){inp={throttle:0,steer:0,drift:false};}
   const spd=k.speed;
-  let maxS=BASE_SPEED*ch.speed*k.aiMul*(k.shrink>0?0.65:1)*(k.offroad&&k.boost<=0?0.5:1)+(k.boost>0?BOOST_ADD:0);
+  let maxS=BASE_SPEED*(track.def.speedMul||1)*ch.speed*k.aiMul*(k.shrink>0?0.65:1)*(k.offroad&&k.boost<=0?0.5:1)+(k.boost>0?BOOST_ADD:0);
   const th=clamp(inp.throttle||0,-1,1);
   if(th>0){const target=k.boost>0?maxS:maxS*(0.35+0.65*th);if(spd<target)k.speed=Math.min(target,spd+ACCEL*ch.accel*dt*th*(k.boost>0?2.5:1));else k.speed=Math.max(target,spd-40*dt);}
   else if(th<0){k.speed=Math.max(-16,spd-BRAKE*dt*(-th));}
@@ -735,6 +797,7 @@ function stepKart(k,inp,dt){
     if(k.bumpCd<=0){k.bumpCd=.3;if(!k.remote)fx(k,'bump');for(let i=0;i<8;i++)spawnP(k.pos,new THREE.Vector3(rand(-4,4),rand(2,6),rand(-4,4)),0xd9c9a0,.5,1.2);}
     k.drift=false;}
   k.pos.y=k.trackY;
+  k.gateCd=Math.max(0,k.gateCd-dt);if(track.gates.length&&k.gateCd<=0){for(const gt of track.gates){const di=(k.idx-gt.idx+N)%N;if((di<=2||di>=N-2)&&Math.abs(k.lateral-gt.lat)<3.2){k.gateCd=1.2;k.boost=Math.max(k.boost,.9);fx(k,'sfx','boost');for(let i=0;i<14;i++)spawnP(k.pos.clone().setY(k.pos.y+1),new THREE.Vector3(rand(-5,5),rand(1,6),rand(-5,5)),0x2bff7a,.5,1);break;}}}
   // wrong way
   const s=S[k.idx];const fwdDot=_f.x*s.t.x+_f.z*s.t.z;k.wrongT=(fwdDot<-0.2&&k.speed>5)?k.wrongT+dt:0;
   kartVisuals(k,dt);
@@ -837,7 +900,7 @@ function spawnOil(p){const mesh=buildOilMesh();const h={id:++netSeq,mesh,pos:p.c
 function updateHazards(dt){for(let i=G.hazards.length-1;i>=0;i--){const h=G.hazards[i];h.life-=dt;
   for(const k of G.karts){if(k.spin<=0&&Math.hypot(k.pos.x-h.pos.x,k.pos.z-h.pos.z)<1.9){hitKart(k,'oil');h.life=0;}}
   if(h.life<=0){scene.remove(h.mesh);G.hazards.splice(i,1);}}}
-function updateBoxes(dt){for(const b of track.boxes){b.g.rotation.y+=dt*1.5;b.g.rotation.x+=dt*.9;b.core.rotation.y-=dt*3;b.g.position.y=b.pos.y+Math.sin(G.time*2+b.idx)*.25;
+function updateBoxes(dt){for(const gt of track.gates){gt.disc.rotation.z+=dt*2.2;}for(const b of track.boxes){b.g.rotation.y+=dt*1.5;b.g.rotation.x+=dt*.9;b.core.rotation.y-=dt*3;b.g.position.y=b.pos.y+Math.sin(G.time*2+b.idx)*.25;
   if(!b.active){b.timer-=dt;if(b.timer<=0){b.active=true;b.g.visible=true;}continue;}
   for(const k of G.karts){if(Math.hypot(k.pos.x-b.pos.x,k.pos.z-b.pos.z)<2.4){b.active=false;b.timer=3;b.g.visible=false;giveItem(k);for(let j=0;j<12;j++)spawnP(b.pos,new THREE.Vector3(rand(-5,5),rand(1,6),rand(-5,5)),0x8ef0ff,.5,1);break;}}}}
 
@@ -1022,7 +1085,7 @@ function clientTick(dt){
     for(const [id,m] of Net.puppetProj){if(!seenP.has(id)){rocketBurst(m.position);scene.remove(m);Net.puppetProj.delete(id);}}
     const seenH=new Set();latest.h.forEach(h=>{seenH.add(h[0]);let m=Net.puppetHaz.get(h[0]);if(!m){m=buildOilMesh();scene.add(m);Net.puppetHaz.set(h[0],m);}m.position.set(h[1],h[2],h[3]);});
     for(const [id,m] of Net.puppetHaz){if(!seenH.has(id)){scene.remove(m);Net.puppetHaz.delete(id);}}
-    track.boxes.forEach((b,i)=>{const on=!!(latest.b&(1<<i));if(on!==b.active){b.active=on;b.g.visible=on;if(!on)for(let j=0;j<12;j++)spawnP(b.pos,new THREE.Vector3(rand(-5,5),rand(1,6),rand(-5,5)),0x8ef0ff,.5,1);}
+    for(const gt of track.gates){gt.disc.rotation.z+=dt*2.2;}track.boxes.forEach((b,i)=>{const on=!!(latest.b&(1<<i));if(on!==b.active){b.active=on;b.g.visible=on;if(!on)for(let j=0;j<12;j++)spawnP(b.pos,new THREE.Vector3(rand(-5,5),rand(1,6),rand(-5,5)),0x8ef0ff,.5,1);}
       b.g.rotation.y+=dt*1.5;b.g.rotation.x+=dt*.9;b.core.rotation.y-=dt*3;b.g.position.y=b.pos.y+Math.sin(G.time*2+b.idx)*.25;});
     G.standings=G.karts.slice().sort((x,y)=>x.rank-y.rank);}
   updateParticles(dt);G.views.forEach(v=>{updateCamera(v,dt,false);updateHUD(v,dt);});

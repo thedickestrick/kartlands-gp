@@ -598,7 +598,8 @@ const KM_SOLO={KeyW:[0,'up'],ArrowUp:[0,'up'],KeyS:[0,'down'],ArrowDown:[0,'down
 const KM_SPLIT={KeyW:[0,'up'],KeyS:[0,'down'],KeyA:[0,'left'],KeyD:[0,'right'],ShiftLeft:[0,'drift'],KeyQ:[0,'drift'],KeyE:[0,'item'],ControlLeft:[0,'item'],KeyR:[0,'reset'],
   ArrowUp:[1,'up'],ArrowDown:[1,'down'],ArrowLeft:[1,'left'],ArrowRight:[1,'right'],ShiftRight:[1,'drift'],Space:[1,'drift'],Enter:[1,'item'],ControlRight:[1,'item'],Slash:[1,'item'],Backspace:[1,'reset']};
 const activeKeymap=()=>G.mode==='split'?KM_SPLIT:KM_SOLO;
-addEventListener('keydown',e=>{if(e.code==='Escape'){togglePause();return;}if(e.code==='KeyM'){Audio.toggle();return;}const m=activeKeymap()[e.code];if(m){const I=inputs[m[0]],k=m[1];if(k==='item'&&!I.item)I.itemPressed=true;I[k]=true;e.preventDefault();}});
+const typingTarget=e=>{const t=e.target;const tag=t&&t.tagName;return tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||(t&&t.isContentEditable);};
+addEventListener('keydown',e=>{if(typingTarget(e))return;if(e.code==='Escape'){togglePause();return;}if(G.state!=='race')return;if(e.code==='KeyM'){Audio.toggle();return;}const m=activeKeymap()[e.code];if(m){const I=inputs[m[0]],k=m[1];if(k==='item'&&!I.item)I.itemPressed=true;I[k]=true;e.preventDefault();}});
 addEventListener('keyup',e=>{[KM_SOLO,KM_SPLIT].forEach(km=>{const m=km[e.code];if(m)inputs[m[0]][m[1]]=false;});});
 addEventListener('blur',()=>{inputs.forEach(I=>{for(const k in I)I[k]=false;});});
 // touch

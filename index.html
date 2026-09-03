@@ -215,15 +215,6 @@
       <button class="btn ghost" id="btnOnlineBack">Back</button>
     </div>
     <div id="netStatus"></div>
-    <details id="relayBox" style="margin-top:14px">
-      <summary style="cursor:pointer;font-weight:900;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">Relay for strict networks</summary>
-      <p style="font-size:13px;margin-top:8px">If joining stops at “negotiating a network path”, one of you is behind a router that blocks direct links. A relay fixes it. Get a free credentials URL from metered.ca (steps in the README), paste it here, and press Test. Hosts pass it to friends automatically through invite links.</p>
-      <div class="row" style="align-items:flex-end">
-        <label class="field" style="flex:1 1 260px">Relay credentials URL<input id="netRelay" placeholder="https://….metered.live/api/v1/turn/credentials?apiKey=…" style="text-transform:none;font-size:13px;letter-spacing:0"></label>
-        <button class="btn ghost" id="btnRelayTest">Test relay</button>
-      </div>
-      <div id="relayStatus" style="font-weight:700;font-size:13px;color:var(--mint);min-height:20px;margin-top:8px"></div>
-    </details>
     <p id="netHint" style="font-size:13px;color:var(--muted);font-weight:700;margin-top:10px"></p>
   </div>
 </div>
@@ -974,15 +965,8 @@ const PAGES_URL='https://thedickestrick.github.io/kartlands-gp/';
 const nowMs=()=>window.__simNow!=null?window.__simNow:performance.now();
 const Net={role:null,peer:null,myId:null,code:null,name:'Racer',conns:new Map(),lobby:{players:[],track:0},hostConn:null,
   snaps:[],acc:0,inAcc:0,itemCount:0,resetCount:0,rtt:80,pingT:0,hist:[],puppetProj:new Map(),puppetHaz:new Map(),
-  iceCache:null,hasRelay:false,
-  relayUrl(){if(TURN_API_URL)return TURN_API_URL;try{return (localStorage.getItem('kgp-relay')||'').trim();}catch(e){return '';}},
-  setRelayUrl(u){u=(u||'').trim();try{if(u)localStorage.setItem('kgp-relay',u);else localStorage.removeItem('kgp-relay');}catch(e){}Net.iceCache=null;Net.hasRelay=false;},
-  async testRelay(){const url=Net.relayUrl();const st=$('relayStatus');st.style.color='var(--mint)';if(!url){st.textContent='No relay URL set. Direct connections only.';return;}st.textContent='Fetching relay credentials…';Net.iceCache=null;const cfg=await Net.iceConfig();
-    if(!Net.hasRelay){st.style.color='var(--coral)';st.textContent='That URL did not return relay servers. Check it is the credentials URL with the API key.';return;}
-    st.textContent='Credentials OK. Checking the relay answers…';const types=await Net.gatherTypes(cfg,'relay',8000);
-    if(types.relay){st.textContent='Relay ready: '+types.relay+' relay route'+(types.relay===1?'':'s')+' available. Strict networks can join now.';}else{st.style.color='var(--coral)';st.textContent='Credentials loaded but the relay did not answer within 8 seconds. Try again, or check the account has relay traffic left.';}},
-  gatherTypes(cfg,policy,ms){return new Promise(res=>{let pc;try{pc=new RTCPeerConnection(Object.assign({iceTransportPolicy:policy},cfg));}catch(e){res({});return;}const types={};pc.createDataChannel('probe');pc.onicecandidate=e=>{if(e.candidate){const m=/typ (\w+)/.exec(e.candidate.candidate);if(m)types[m[1]]=(types[m[1]]||0)+1;}};const done=()=>{res(types);try{pc.close();}catch(e){}};pc.onicegatheringstatechange=()=>{if(pc.iceGatheringState==='complete')done();};pc.createOffer().then(o=>pc.setLocalDescription(o)).catch(done);setTimeout(done,ms);});},
-  async iceConfig(){if(Net.iceCache)return Net.iceCache;const url=Net.relayUrl();if(!url)return Net.iceCache=ICE;try{const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),6000);const r=await fetch(url,{signal:ctl.signal});clearTimeout(t);const j=await r.json();const list=Array.isArray(j)?j:(j.iceServers||j.ice_servers||[]);const turn=list.filter(x=>x&&x.urls);if(!turn.length)throw new Error('no ice servers in response');Net.hasRelay=turn.some(x=>String(x.urls).includes('turn'));Net.log('relay servers loaded',turn.length);return Net.iceCache={iceServers:STUN.concat(turn),sdpSemantics:'unified-plan'};}catch(e){Net.log('relay credentials unavailable',e.message);return Net.iceCache=ICE;}},
+  iceCache:null,
+  async iceConfig(){if(Net.iceCache)return Net.iceCache;if(!TURN_API_URL)return Net.iceCache=ICE;try{const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),5000);const r=await fetch(TURN_API_URL,{signal:ctl.signal});clearTimeout(t);const j=await r.json();const list=Array.isArray(j)?j:(j.iceServers||j.ice_servers||[]);const turn=list.filter(x=>x&&x.urls);if(!turn.length)throw new Error('no ice servers in response');Net.hasRelay=turn.some(x=>String(x.urls).includes('turn'));Net.log('relay servers loaded',turn.length);return Net.iceCache={iceServers:STUN.concat(turn),sdpSemantics:'unified-plan'};}catch(e){Net.log('relay credentials unavailable',e.message);return Net.iceCache=ICE;}},
   status(msg,err){const s=$('netStatus');s.textContent=msg||'';s.classList.toggle('err',!!err);},
   codeFor(){const A='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<5;i++)s+=A[Math.floor(Math.random()*A.length)];return s;},
   readName(){const n=($('netName').value||'').trim();Net.name=n?n.slice(0,12):'Racer';try{localStorage.setItem('kgp-name',Net.name);}catch(e){}},
@@ -1027,12 +1011,10 @@ const Net={role:null,peer:null,myId:null,code:null,name:'Racer',conns:new Map(),
     const fail=(msg,retryable)=>{if(settled)return;settled=true;clearTimeout(timeout);Net.hostConn=null;try{peer.destroy();}catch(e){}if(Net.peer===peer)Net.peer=null;
       if(retryable&&performance.now()<Net.joinDeadline&&Net.role==='client'){Net.status(msg+' Retrying…',true);Net.rejoinPending=true;Net.rejoinTimer=setTimeout(()=>{if(Net.role==='client')Net.join(code,{retry:true,resume:opts.resume});},3000);}
       else{Net.leave(true);Net.status(msg+' '+Net.hint(),true);$('online').style.display='flex';}};
-    const timeout=setTimeout(()=>fail('Could not open a network path to the host in time.'+(Net.hasRelay?'':' One of you probably needs a relay: open “Relay for strict networks” below.'),true),30000);
+    const timeout=setTimeout(()=>fail('Could not reach the host in time.',true),30000);
     peer.on('open',id=>{Net.myId=id;Net.status('Contacting the host…');const conn=peer.connect('kgp-'+code,{reliable:true,serialization:'json'});Net.hostConn=conn;
       conn.on('open',()=>{clearTimeout(timeout);settled=true;Net.joinTry=0;Net.remember();conn.send({t:'hello',name:Net.name,ch:G.selChars[0]});setTimeout(async()=>{Net.path=await Net.pathType(conn);if(Net.role==='client')renderLobby();},2500);});
-      const cand={};const watchIce=()=>{const pc=conn.peerConnection;if(!pc){if(!settled)setTimeout(watchIce,250);return;}pc.addEventListener('icecandidate',e=>{if(e.candidate){const m=/typ (\w+)/.exec(e.candidate.candidate);if(m)cand[m[1]]=(cand[m[1]]||0)+1;}});
-        pc.addEventListener('iceconnectionstatechange',()=>{const st=pc.iceConnectionState;Net.log('ice',st,JSON.stringify(cand));if(settled)return;if(st==='checking')Net.status('Found the host, negotiating a network path'+(Net.hasRelay?' (relay available)':' (no relay)')+'…');
-          if(st==='failed'){const summary=' Your routes: '+(Object.keys(cand).length?Object.entries(cand).map(([k,v])=>k+' '+v).join(', '):'none')+'.';fail((Net.hasRelay?'Found the host, but no network path could be opened between you, even through the relay.':'Found the host, but no direct network path could be opened. One of you needs a relay: open “Relay for strict networks” below.')+summary,true);}});};watchIce();
+      const watchIce=()=>{const pc=conn.peerConnection;if(!pc){if(!settled)setTimeout(watchIce,250);return;}pc.addEventListener('iceconnectionstatechange',()=>{const st=pc.iceConnectionState;Net.log('ice',st);if(settled)return;if(st==='checking')Net.status('Found the host, negotiating a network path…');if(st==='failed')fail(Net.hasRelay?'Found the host, but no network path could be opened between you, even through the relay.':'Found the host, but no direct network path could be opened between you. Setting up a relay server fixes this (see the README on GitHub).',true);});};watchIce();
       conn.on('data',d=>Net.clientData(d));conn.on('close',()=>Net.hostGone());conn.on('error',err=>Net.log('conn error',err));});
     peer.on('error',e=>{Net.log('client error',e.type,e.message);
       if(e.type==='peer-unavailable')fail(opts.retry||opts.resume?'The room is not open yet.':'No room with code '+code+'.',!!(opts.retry||opts.resume));
@@ -1075,15 +1057,14 @@ const Net={role:null,peer:null,myId:null,code:null,name:'Racer',conns:new Map(),
   forget(){try{sessionStorage.removeItem('kgp-room');}catch(e){}if(location.search){try{history.replaceState(null,'',location.pathname);}catch(e){}}},
   // after a reload: rejoin the room we were in, or follow an invite link
   resume(){let saved=null;try{saved=JSON.parse(sessionStorage.getItem('kgp-room')||'null');}catch(e){}
-    const params=new URLSearchParams(location.search);const relayParam=params.get('relay');if(relayParam&&/^https:\/\//.test(relayParam)){Net.setRelayUrl(relayParam);}
-    const url=(params.get('room')||'').toUpperCase();
+    const url=(new URLSearchParams(location.search).get('room')||'').toUpperCase();
     if(url.length===5){openOnlinePanel();$('netCode').value=url;Net.join(url,{resume:true});return true;}
     if(saved&&saved.code&&saved.role){openOnlinePanel();if(saved.name)$('netName').value=saved.name;if(saved.role==='host')Net.host(saved.code);else{$('netCode').value=saved.code;Net.join(saved.code,{resume:true});}return true;}
     return false;},
   async pathType(conn){try{const pc=conn&&conn.peerConnection;if(!pc)return null;const st=await pc.getStats();let pair=null;st.forEach(r=>{if(r.type==='candidate-pair'&&r.state==='succeeded'&&(r.selected||r.nominated||!pair))pair=r;});if(!pair)return null;const loc=st.get(pair.localCandidateId),rem=st.get(pair.remoteCandidateId);const t=[loc&&loc.candidateType,rem&&rem.candidateType];return t.includes('relay')?'relay':(t.includes('srflx')||t.includes('prflx'))?'internet':'local';}catch(e){return null;}},
   pathLabel(p){return {relay:'relay server',internet:'direct internet link',local:'local network'}[p]||'';},
   hint(){return /^https?:$/.test(location.protocol)?'':'This copy is not running from a web address, so it cannot reach the signaling server. Use the web version at '+PAGES_URL;},
-  inviteUrl(){if(!/^https?:$/.test(location.protocol))return null;const relay=TURN_API_URL?'':Net.relayUrl();return location.origin+location.pathname+'?room='+Net.code+(relay?'&relay='+encodeURIComponent(relay):'');},
+  inviteUrl(){return /^https?:$/.test(location.protocol)?location.origin+location.pathname+'?room='+Net.code:null;},
   log(){console.log.apply(console,['[net]'].concat(Array.prototype.slice.call(arguments)));}
 };
 function clientTick(dt){
@@ -1115,7 +1096,7 @@ function clientTick(dt){
 // ---------- lobby UI
 function openLobby(){G.state='menu';['menu','pick','online','results'].forEach(id=>$(id).style.display='none');$('lobby').style.display='flex';renderLobby();startBackdrop();}
 function renderLobby(){const L=Net.lobby;const host=Net.role==='host';$('lobbyCode').textContent=Net.code||'-----';
-  $('lobbyHint').textContent=host?'Share this code or the invite link. Racers appear below as they join, and you start the race.'+(Net.hasRelay?' Relay ready, invite links carry it.':' No relay set: friends on strict networks may not connect.'):'Connected'+(Net.path?' over a '+Net.pathLabel(Net.path):'')+(Net.hasRelay?', relay ready':'')+'. The host picks the circuit and starts the race.';$('btnInvite').style.display=Net.inviteUrl()?'':'none';
+  $('lobbyHint').textContent=host?'Share this code or the invite link. Racers appear below as they join, and you start the race.':'Connected'+(Net.path?' over a '+Net.pathLabel(Net.path):'')+'. The host picks the circuit and starts the race.';$('btnInvite').style.display=Net.inviteUrl()?'':'none';
   $('lobbyPlayers').innerHTML=L.players.map(p=>`<div class="prow"><i style="background:#${new THREE.Color(CHARACTERS[p.ch].color).getHexString()}"></i><span>${escapeHtml(p.name)}</span><span style="color:var(--muted)">${CHARACTERS[p.ch].name}</span><span class="tag">${p.host?'Host':''}${p.id===Net.myId?(p.host?' · You':'You'):''}${!p.host&&p.path&&Net.role==='host'?' · '+Net.pathLabel(p.path):''}</span></div>`).join('')+
     (L.players.length<NUM_KARTS?`<div class="prow" style="color:var(--muted)">${NUM_KARTS-L.players.length} AI racer${NUM_KARTS-L.players.length===1?'':'s'} will fill the grid</div>`:'');
   const me=L.players.find(p=>p.id===Net.myId);const taken=new Set(L.players.filter(p=>p.id!==Net.myId).map(p=>p.ch));
@@ -1229,13 +1210,11 @@ function buildMenus(){const split=G.mode==='split';buildCharGrid('chars',0);$('p
 buildMenus();
 function openPick(mode){G.mode=mode;if(mode==='split'&&G.selChars[0]===G.selChars[1])G.selChars[1]=(G.selChars[0]+1)%NUM_KARTS;Audio.init();Audio.resume();Audio.sfx('ui');buildMenus();$('menu').style.display='none';$('pick').style.display='flex';}
 $('btnSolo').onclick=()=>openPick('solo');$('btnSplit').onclick=()=>openPick('split');
-function openOnlinePanel(){G.mode='online';['menu','pick','lobby','results'].forEach(id=>$(id).style.display='none');$('online').style.display='flex';Net.status('');$('netRelay').value=TURN_API_URL||Net.relayUrl();if(TURN_API_URL)$('netRelay').disabled=true;if(Net.relayUrl())$('relayBox').open=true;try{if(!$('netName').value)$('netName').value=localStorage.getItem('kgp-name')||'';}catch(e){}const h=Net.hint();$('netHint').textContent=h?h:'Playing inside the Claude app? Online rooms need the web version: '+PAGES_URL;}
+function openOnlinePanel(){G.mode='online';['menu','pick','lobby','results'].forEach(id=>$(id).style.display='none');$('online').style.display='flex';Net.status('');try{if(!$('netName').value)$('netName').value=localStorage.getItem('kgp-name')||'';}catch(e){}const h=Net.hint();$('netHint').textContent=h?h:'Playing inside the Claude app? Online rooms need the web version: '+PAGES_URL;}
 $('btnOnline').onclick=()=>{Audio.init();Audio.resume();Audio.sfx('ui');openOnlinePanel();$('netName').focus();};
 $('btnInvite').onclick=()=>{const u=Net.inviteUrl();if(!u)return;const done=()=>{$('inviteMsg').textContent='Copied: '+u;};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(u).then(done,()=>{$('inviteMsg').textContent=u;});else $('inviteMsg').textContent=u;};
 $('btnOnlineBack').onclick=()=>{Net.leave(true);$('online').style.display='none';$('menu').style.display='flex';};
 $('btnHost').onclick=()=>{Audio.sfx('ui');Net.host();};
-$('netRelay').addEventListener('change',()=>{Net.setRelayUrl($('netRelay').value);$('relayStatus').textContent=Net.relayUrl()?'Saved. Press Test relay to check it.':'';});
-$('btnRelayTest').onclick=()=>{Net.setRelayUrl($('netRelay').value);Net.testRelay();};
 $('btnJoin').onclick=()=>{Audio.sfx('ui');Net.join($('netCode').value);};
 $('netCode').addEventListener('keydown',e=>{if(e.key==='Enter')$('btnJoin').click();});
 $('btnLobbyStart').onclick=()=>{if(Net.role==='host'){Audio.sfx('ui');Net.startFromLobby();}};

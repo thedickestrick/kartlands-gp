@@ -158,7 +158,7 @@
       <span><kbd>E</kbd> / <kbd>Ctrl</kbd></span><span>Use item</span>
       <span><kbd>R</kbd></span><span>Reset kart onto the road</span>
       <span><kbd>Esc</kbd></span><span>Pause</span>
-      <span>🎮</span><span>Controller: left stick or d-pad steers, right trigger or A accelerates, left trigger or B brakes, bumpers or X drift, Y fires, Back resets, Start pauses. A second pad drives Player 2 in split screen.</span>
+      <span>🎮</span><span>Controller: either stick or the d-pad steers, right trigger, A, or left stick forward accelerates, left trigger, B, or left stick back brakes, bumpers or X drift, Y fires, Back resets, Start pauses. A second pad drives Player 2 in split screen.</span>
     </div>
     <div class="modes">
       <button class="mode" id="btnSolo"><b>Solo race</b><span>You against seven AI rivals. Keyboard or touch.</span></button>
@@ -696,8 +696,9 @@ function stepKart(k,inp,dt){
   if(k.spin>0){inp={throttle:0,steer:0,drift:false};}
   const spd=k.speed;
   let maxS=BASE_SPEED*ch.speed*k.aiMul*(k.shrink>0?0.65:1)*(k.offroad&&k.boost<=0?0.5:1)+(k.boost>0?BOOST_ADD:0);
-  if(inp.throttle>0){if(spd<maxS)k.speed=Math.min(maxS,spd+ACCEL*ch.accel*dt*(k.boost>0?2.5:1));else k.speed=Math.max(maxS,spd-40*dt);}
-  else if(inp.throttle<0){k.speed=Math.max(-16,spd-BRAKE*dt);}
+  const th=clamp(inp.throttle||0,-1,1);
+  if(th>0){const target=k.boost>0?maxS:maxS*(0.35+0.65*th);if(spd<target)k.speed=Math.min(target,spd+ACCEL*ch.accel*dt*th*(k.boost>0?2.5:1));else k.speed=Math.max(target,spd-40*dt);}
+  else if(th<0){k.speed=Math.max(-16,spd-BRAKE*dt*(-th));}
   else k.speed*=Math.exp(-1.1*dt);
   if(k.spin>0)k.speed*=Math.exp(-1.5*dt);
   if(k.boost>0&&k.speed<maxS)k.speed=Math.min(maxS,k.speed+140*dt);
@@ -946,7 +947,7 @@ const Net={role:null,peer:null,myId:null,code:null,name:'Racer',conns:new Map(),
     case 'full':Net.leave(true);Net.status('That room is full.',true);$('online').style.display='flex';break;
     case 'busy':Net.status('That room is mid-race. You will join when it returns to the lobby…',true);Net.scheduleRejoin(8000);break;}},
   hostGone(){if(Net.role!=='client'||!Net.hostConn||Net.rejoinPending)return;Net.log('host connection closed');Net.dropRace('Lost the host. Waiting for the room to come back…');Net.scheduleRejoin(1500);},
-  sendInput(){const I=inputs[0];if(!Net.hostConn||!Net.hostConn.open)return;const li=localInput(I,0);Net.hostConn.send({t:'in',u:+(li.throttle>0),d:+(li.throttle<0),l:+(li.steer>0.05),r:+(li.steer<-0.05),st:+li.steer.toFixed(2),dr:+li.drift,it:Net.itemCount,rs:Net.resetCount});},
+  sendInput(){const I=inputs[0];if(!Net.hostConn||!Net.hostConn.open)return;const li=localInput(I,0);Net.hostConn.send({t:'in',u:+(li.throttle>0),d:+(li.throttle<0),th:+li.throttle.toFixed(2),l:+(li.steer>0.05),r:+(li.steer<-0.05),st:+li.steer.toFixed(2),dr:+li.drift,it:Net.itemCount,rs:Net.resetCount});},
   // own kart: discrete state comes from the host; position is reconciled against where we were one round trip ago
   applyAuthoritative(s){const me=G.player;if(!me)return;const a=s.k[me.i];if(!a)return;
     me.lap=a[5];me.item=a[7]||null;me.boost=a[8];me.spin=a[9];me.shrink=a[10];me.shield=a[11];me.rank=a[15];me.finished=!!a[16];me.rolling=a[17];
@@ -1039,11 +1040,11 @@ function render(){renderer.getSize(_sz);const w=_sz.x,h=_sz.y;
 function countdown(prev){if(prev<0){const step=Math.ceil(-G.raceTime);if(step!==G.countStep){G.countStep=step;if(step>0&&step<=3){G.views.forEach(v=>showMsg(v,String(step)));Audio.sfx('count');}}
     if(G.raceTime>=0){G.views.forEach(v=>showMsg(v,'GO!','',.9));Audio.sfx('go');return true;}}return false;}
 // ---------- gamepads: pad 0 drives player 1, pad 1 drives player 2 in split screen; any pad drives player 1 otherwise
-const gpState=[{up:false,down:false,drift:false,steer:0},{up:false,down:false,drift:false,steer:0}];const gpPrev={};let gpSeen=0;
-function pollGamepads(){if(!navigator.getGamepads)return;let pads;try{pads=navigator.getGamepads();}catch(e){return;}gpState.forEach(g=>{g.up=g.down=g.drift=false;g.steer=0;});let n=0;
+const gpState=[{up:false,down:false,drift:false,steer:0,throttle:0,brake:0},{up:false,down:false,drift:false,steer:0,throttle:0,brake:0}];const gpPrev={};let gpSeen=0;
+function pollGamepads(){if(!navigator.getGamepads)return;let pads;try{pads=navigator.getGamepads();}catch(e){return;}gpState.forEach(g=>{g.up=g.down=g.drift=false;g.steer=0;g.throttle=0;g.brake=0;});let n=0;
   for(const p of pads){if(!p||!p.connected)continue;const pi=G.mode==='split'?Math.min(n,1):0;n++;const g=gpState[pi];const bt=i=>!!(p.buttons[i]&&(p.buttons[i].pressed||p.buttons[i].value>0.3));
-    const ax=p.axes[0]||0;let steer=Math.abs(ax)>0.15?-(ax-Math.sign(ax)*0.15)/0.85:0;if(bt(14))steer=1;if(bt(15))steer=-1;if(steer)g.steer=clamp(steer,-1,1);
-    if(bt(7)||bt(0)||(p.axes[1]||0)<-0.6)g.up=true;if(bt(6)||bt(1)||(p.axes[1]||0)>0.6)g.down=true;if(bt(5)||bt(4)||bt(2))g.drift=true;
+    const dz=x=>Math.abs(x)>0.15?(x-Math.sign(x)*0.15)/0.85:0;const lx=dz(p.axes[0]||0),rx=dz(p.axes[2]||0);const ax=Math.abs(rx)>Math.abs(lx)?rx:lx;let steer=-ax;if(bt(14))steer=1;if(bt(15))steer=-1;if(steer)g.steer=clamp(steer,-1,1);
+    const ly=dz(p.axes[1]||0);const trig=b=>!b?0:(b.value>0?b.value:(b.pressed?1:0));const rt=trig(p.buttons[7]),lt=trig(p.buttons[6]);const th=Math.max(rt,bt(0)?1:0,-ly),br=Math.max(lt,bt(1)?1:0,ly);if(th>g.throttle)g.throttle=th;if(br>g.brake)g.brake=br;g.up=g.throttle>0.05;g.down=g.brake>0.05;if(bt(5)||bt(4)||bt(2))g.drift=true;
     const prev=gpPrev[p.index]||{};const now={item:bt(3),reset:bt(8),start:bt(9),a:bt(0)};
     if(now.item&&!prev.item)inputs[pi].itemPressed=true;if(now.reset&&!prev.reset)inputs[pi].reset=true;
     if(now.start&&!prev.start){if(G.state==='results')$('btnAgain').click();else togglePause();}
@@ -1054,15 +1055,15 @@ function rumble(pi,strong,weak,ms){for(const p of padsFor(pi)){const a=p.vibrati
 let toastT=null;function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),3200);}
 addEventListener('gamepadconnected',e=>{gpSeen++;const id=(e.gamepad.id||'Controller').replace(/\s*\(.*$/,'').slice(0,40);toast('Controller connected: '+id+(G.mode==='split'&&e.gamepad.index>0?' (Player 2)':''));});
 addEventListener('gamepaddisconnected',()=>toast('Controller disconnected'));
-function localInput(I,i){const g=gpState[i]||gpState[0];const ks=(I.left?1:0)-(I.right?1:0);return {throttle:(I.up||g.up)?1:(I.down||g.down)?-1:0,steer:ks!==0?ks:g.steer,drift:I.drift||g.drift};}
+function localInput(I,i){const g=gpState[i]||gpState[0];const ks=(I.left?1:0)-(I.right?1:0);const th=I.up?1:I.down?-1:g.throttle>0.05?g.throttle:g.brake>0.05?-g.brake:0;return {throttle:th,steer:ks!==0?ks:g.steer,drift:I.drift||g.drift};}
 function tick(dt){
   if(G.state!=='race'||G.paused)return;
   if(Net.role==='client'){clientTick(dt);return;}
   G.time+=dt;const prev=G.raceTime;G.raceTime+=dt;
-  if(countdown(prev))G.karts.forEach(k=>{const up=k.isPlayer?(k.remote?k.netInput.u:(inputs[k.pIndex].up||gpState[k.pIndex].up)):Math.random()<.5;if(up)k.boost=.7;});
+  if(countdown(prev))G.karts.forEach(k=>{const up=k.isPlayer?(k.remote?k.netInput.u:(inputs[k.pIndex].up||gpState[k.pIndex].throttle>0.5)):Math.random()<.5;if(up)k.boost=.7;});
   for(const k of G.karts){let inp;
     if(k.isPlayer&&!k.finished){
-      if(k.remote){const NI=k.netInput;inp={throttle:NI.u?1:NI.d?-1:0,steer:NI.st!=null?clamp(NI.st,-1,1):(NI.l?1:0)-(NI.r?1:0),drift:!!NI.dr};if(NI.it>k.lastItemCount){k.lastItemCount=NI.it;useItem(k);}if(NI.rs>k.lastResetCount){k.lastResetCount=NI.rs;resetKart(k);}}
+      if(k.remote){const NI=k.netInput;inp={throttle:NI.th!=null?clamp(NI.th,-1,1):(NI.u?1:NI.d?-1:0),steer:NI.st!=null?clamp(NI.st,-1,1):(NI.l?1:0)-(NI.r?1:0),drift:!!NI.dr};if(NI.it>k.lastItemCount){k.lastItemCount=NI.it;useItem(k);}if(NI.rs>k.lastResetCount){k.lastResetCount=NI.rs;resetKart(k);}}
       else{const I=inputs[k.pIndex];inp=localInput(I,k.pIndex);if(I.itemPressed)useItem(k);if(I.reset){resetKart(k);I.reset=false;}}}
     else if(k.isPlayer&&k.finished){inp=aiInput(k,dt);k.aiMul=0.7;}else inp=aiInput(k,dt);stepKart(k,inp,dt);}
   inputs.forEach(I=>I.itemPressed=false);

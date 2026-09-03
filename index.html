@@ -877,21 +877,26 @@ function renderResults(title,rows,label,myNetId){G.state='results';Audio.stopMus
   $('results').style.display='flex';$('hud').style.display='none';}
 
 // ============================================================ networking (WebRTC via PeerJS, host-authoritative)
-const ICE={iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},
-  {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},{urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'}]};
+// Relay (TURN) server: needed for players behind strict routers, carrier-grade NAT or cellular. Free public relays no longer exist,
+// so paste a credentials URL from a free Metered.ca account here (see README.md). Empty = STUN only (direct connections).
+const TURN_API_URL='';
+const STUN=[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302','stun:stun.cloudflare.com:3478']}];
+const ICE={iceServers:STUN.slice(),sdpSemantics:'unified-plan'};
 const SNAP_RATE=1/20, INPUT_RATE=1/30, INTERP_DELAY=110;
 const FATAL=new Set(['browser-incompatible','invalid-id','invalid-key','ssl-unavailable','server-error','socket-error','socket-closed','webrtc']);
 const PAGES_URL='https://thedickestrick.github.io/kartlands-gp/';
 const nowMs=()=>window.__simNow!=null?window.__simNow:performance.now();
 const Net={role:null,peer:null,myId:null,code:null,name:'Racer',conns:new Map(),lobby:{players:[],track:0},hostConn:null,
   snaps:[],acc:0,inAcc:0,itemCount:0,resetCount:0,rtt:80,pingT:0,hist:[],puppetProj:new Map(),puppetHaz:new Map(),
+  iceCache:null,
+  async iceConfig(){if(Net.iceCache)return Net.iceCache;if(!TURN_API_URL)return Net.iceCache=ICE;try{const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),5000);const r=await fetch(TURN_API_URL,{signal:ctl.signal});clearTimeout(t);const j=await r.json();const list=Array.isArray(j)?j:(j.iceServers||j.ice_servers||[]);const turn=list.filter(x=>x&&x.urls);if(!turn.length)throw new Error('no ice servers in response');Net.hasRelay=turn.some(x=>String(x.urls).includes('turn'));Net.log('relay servers loaded',turn.length);return Net.iceCache={iceServers:STUN.concat(turn),sdpSemantics:'unified-plan'};}catch(e){Net.log('relay credentials unavailable',e.message);return Net.iceCache=ICE;}},
   status(msg,err){const s=$('netStatus');s.textContent=msg||'';s.classList.toggle('err',!!err);},
   codeFor(){const A='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<5;i++)s+=A[Math.floor(Math.random()*A.length)];return s;},
   readName(){const n=($('netName').value||'').trim();Net.name=n?n.slice(0,12):'Racer';try{localStorage.setItem('kgp-name',Net.name);}catch(e){}},
   // ---------- host
-  host(code,attempt){if(typeof Peer==='undefined'){Net.status('The networking library did not load. Check your connection and reload.',true);return;}
+  async host(code,attempt){if(typeof Peer==='undefined'){Net.status('The networking library did not load. Check your connection and reload.',true);return;}
     Net.readName();Net.role='host';Net.code=code||Net.codeFor();Net.myId='host';attempt=attempt||0;Net.status(attempt?'Reclaiming room '+Net.code+'…':'Opening room…');
-    const peer=new Peer('kgp-'+Net.code,{config:ICE});Net.peer=peer;let opened=false;
+    const cfg=await Net.iceConfig();if(Net.role!=='host')return;const peer=new Peer('kgp-'+Net.code,{config:cfg});Net.peer=peer;let opened=false;
     peer.on('open',()=>{opened=true;if(!Net.lobby.players.length)Net.lobby={players:[{id:'host',name:Net.name,ch:G.selChars[0],host:true}],track:G.selTrack};Net.remember();Net.status('');openLobby();});
     peer.on('connection',conn=>{conn.on('open',()=>{Net.conns.set(conn.peer,conn);});conn.on('data',d=>Net.hostData(conn,d));conn.on('close',()=>Net.hostDrop(conn.peer));conn.on('error',()=>Net.hostDrop(conn.peer));});
     peer.on('error',e=>{Net.log('host error',e.type,e.message);
@@ -901,7 +906,7 @@ const Net={role:null,peer:null,myId:null,code:null,name:'Racer',conns:new Map(),
   hostData(conn,d){const id=conn.peer;switch(d.t){
     case 'hello':{if(G.state==='race'){conn.send({t:'busy'});conn.close();return;}const taken=new Set(Net.lobby.players.map(p=>p.ch));let ch=d.ch;if(taken.has(ch)){ch=0;while(taken.has(ch))ch++;}
       if(Net.lobby.players.length>=NUM_KARTS){conn.send({t:'full'});conn.close();return;}
-      Net.lobby.players.push({id,name:String(d.name||'Racer').slice(0,12),ch});Net.sendLobby();break;}
+      Net.lobby.players.push({id,name:String(d.name||'Racer').slice(0,12),ch});Net.sendLobby();setTimeout(async()=>{const p=Net.lobby.players.find(p=>p.id===id);if(p){p.path=await Net.pathType(conn);if(G.state!=='race')Net.sendLobby();}},2500);break;}
     case 'pick':{const p=Net.lobby.players.find(p=>p.id===id);if(p&&!Net.lobby.players.some(o=>o.ch===d.ch)&&d.ch>=0&&d.ch<NUM_KARTS){p.ch=d.ch;Net.sendLobby();}break;}
     case 'in':{const k=G.karts.find(k=>k.netId===id);if(k)k.netInput=d;break;}
     case 'ping':conn.send({t:'pong',t0:d.t0});break;}},
@@ -920,18 +925,19 @@ const Net={role:null,peer:null,myId:null,code:null,name:'Racer',conns:new Map(),
     return {t:'s',rt:r(G.raceTime),k:G.karts.map(k=>[r(k.pos.x),r(k.pos.y),r(k.pos.z),r(k.heading),r(k.speed),k.lap,k.idx,k.item||0,r(k.boost),r(k.spin),r(k.shrink),r(k.shield),k.drift?1:0,k.driftDir,r(k.driftCharge),k.rank,k.finished?1:0,r(k.rolling),k.offroad?1:0,k.wrongT>1?1:0]),
       p:G.projectiles.map(p=>[p.id,r(p.pos.x),r(p.pos.y),r(p.pos.z),r(p.heading)]),h:G.hazards.map(h=>[h.id,r(h.pos.x),r(h.pos.y),r(h.pos.z)]),b:track.boxes.reduce((m,b,i)=>m|(b.active?1<<i:0),0)};},
   // ---------- client
-  join(code,opts){opts=opts||{};if(typeof Peer==='undefined'){Net.status('The networking library did not load. Check your connection and reload.',true);return;}
+  async join(code,opts){opts=opts||{};if(typeof Peer==='undefined'){Net.status('The networking library did not load. Check your connection and reload.',true);return;}
     code=(code||'').trim().toUpperCase();if(code.length!==5){Net.status('Enter the five-letter room code.',true);return;}
     clearTimeout(Net.rejoinTimer);Net.rejoinPending=false;Net.readName();Net.role='client';Net.code=code;
     Net.joinTry=(opts.retry?Net.joinTry:0)+1;if(!opts.retry)Net.joinDeadline=performance.now()+90000;
     Net.status(opts.retry?'Waiting for the host to come back… (attempt '+Net.joinTry+')':'Connecting to room '+code+'…');
-    const peer=new Peer({config:ICE});Net.peer=peer;let settled=false;
+    const cfg=await Net.iceConfig();if(Net.role!=='client'||Net.code!==code)return;const peer=new Peer({config:cfg});Net.peer=peer;let settled=false;
     const fail=(msg,retryable)=>{if(settled)return;settled=true;clearTimeout(timeout);Net.hostConn=null;try{peer.destroy();}catch(e){}if(Net.peer===peer)Net.peer=null;
       if(retryable&&performance.now()<Net.joinDeadline&&Net.role==='client'){Net.status(msg+' Retrying…',true);Net.rejoinPending=true;Net.rejoinTimer=setTimeout(()=>{if(Net.role==='client')Net.join(code,{retry:true,resume:opts.resume});},3000);}
       else{Net.leave(true);Net.status(msg+' '+Net.hint(),true);$('online').style.display='flex';}};
-    const timeout=setTimeout(()=>fail('Could not reach the host.',true),20000);
+    const timeout=setTimeout(()=>fail('Could not reach the host in time.',true),30000);
     peer.on('open',id=>{Net.myId=id;Net.status('Contacting the host…');const conn=peer.connect('kgp-'+code,{reliable:true,serialization:'json'});Net.hostConn=conn;
-      conn.on('open',()=>{clearTimeout(timeout);settled=true;Net.joinTry=0;Net.remember();conn.send({t:'hello',name:Net.name,ch:G.selChars[0]});});
+      conn.on('open',()=>{clearTimeout(timeout);settled=true;Net.joinTry=0;Net.remember();conn.send({t:'hello',name:Net.name,ch:G.selChars[0]});setTimeout(async()=>{Net.path=await Net.pathType(conn);if(Net.role==='client')renderLobby();},2500);});
+      const watchIce=()=>{const pc=conn.peerConnection;if(!pc){if(!settled)setTimeout(watchIce,250);return;}pc.addEventListener('iceconnectionstatechange',()=>{const st=pc.iceConnectionState;Net.log('ice',st);if(settled)return;if(st==='checking')Net.status('Found the host, negotiating a network path…');if(st==='failed')fail(Net.hasRelay?'Found the host, but no network path could be opened between you, even through the relay.':'Found the host, but no direct network path could be opened between you. Setting up a relay server fixes this (see the README on GitHub).',true);});};watchIce();
       conn.on('data',d=>Net.clientData(d));conn.on('close',()=>Net.hostGone());conn.on('error',err=>Net.log('conn error',err));});
     peer.on('error',e=>{Net.log('client error',e.type,e.message);
       if(e.type==='peer-unavailable')fail(opts.retry||opts.resume?'The room is not open yet.':'No room with code '+code+'.',!!(opts.retry||opts.resume));
@@ -978,6 +984,8 @@ const Net={role:null,peer:null,myId:null,code:null,name:'Racer',conns:new Map(),
     if(url.length===5){openOnlinePanel();$('netCode').value=url;Net.join(url,{resume:true});return true;}
     if(saved&&saved.code&&saved.role){openOnlinePanel();if(saved.name)$('netName').value=saved.name;if(saved.role==='host')Net.host(saved.code);else{$('netCode').value=saved.code;Net.join(saved.code,{resume:true});}return true;}
     return false;},
+  async pathType(conn){try{const pc=conn&&conn.peerConnection;if(!pc)return null;const st=await pc.getStats();let pair=null;st.forEach(r=>{if(r.type==='candidate-pair'&&r.state==='succeeded'&&(r.selected||r.nominated||!pair))pair=r;});if(!pair)return null;const loc=st.get(pair.localCandidateId),rem=st.get(pair.remoteCandidateId);const t=[loc&&loc.candidateType,rem&&rem.candidateType];return t.includes('relay')?'relay':(t.includes('srflx')||t.includes('prflx'))?'internet':'local';}catch(e){return null;}},
+  pathLabel(p){return {relay:'relay server',internet:'direct internet link',local:'local network'}[p]||'';},
   hint(){return /^https?:$/.test(location.protocol)?'':'This copy is not running from a web address, so it cannot reach the signaling server. Use the web version at '+PAGES_URL;},
   inviteUrl(){return /^https?:$/.test(location.protocol)?location.origin+location.pathname+'?room='+Net.code:null;},
   log(){console.log.apply(console,['[net]'].concat(Array.prototype.slice.call(arguments)));}
@@ -1011,8 +1019,8 @@ function clientTick(dt){
 // ---------- lobby UI
 function openLobby(){G.state='menu';['menu','pick','online','results'].forEach(id=>$(id).style.display='none');$('lobby').style.display='flex';renderLobby();startBackdrop();}
 function renderLobby(){const L=Net.lobby;const host=Net.role==='host';$('lobbyCode').textContent=Net.code||'-----';
-  $('lobbyHint').textContent=host?'Share this code or the invite link. Racers appear below as they join, and you start the race.':'Connected. The host picks the circuit and starts the race.';$('btnInvite').style.display=Net.inviteUrl()?'':'none';
-  $('lobbyPlayers').innerHTML=L.players.map(p=>`<div class="prow"><i style="background:#${new THREE.Color(CHARACTERS[p.ch].color).getHexString()}"></i><span>${escapeHtml(p.name)}</span><span style="color:var(--muted)">${CHARACTERS[p.ch].name}</span><span class="tag">${p.host?'Host':''}${p.id===Net.myId?(p.host?' · You':'You'):''}</span></div>`).join('')+
+  $('lobbyHint').textContent=host?'Share this code or the invite link. Racers appear below as they join, and you start the race.':'Connected'+(Net.path?' over a '+Net.pathLabel(Net.path):'')+'. The host picks the circuit and starts the race.';$('btnInvite').style.display=Net.inviteUrl()?'':'none';
+  $('lobbyPlayers').innerHTML=L.players.map(p=>`<div class="prow"><i style="background:#${new THREE.Color(CHARACTERS[p.ch].color).getHexString()}"></i><span>${escapeHtml(p.name)}</span><span style="color:var(--muted)">${CHARACTERS[p.ch].name}</span><span class="tag">${p.host?'Host':''}${p.id===Net.myId?(p.host?' · You':'You'):''}${!p.host&&p.path&&Net.role==='host'?' · '+Net.pathLabel(p.path):''}</span></div>`).join('')+
     (L.players.length<NUM_KARTS?`<div class="prow" style="color:var(--muted)">${NUM_KARTS-L.players.length} AI racer${NUM_KARTS-L.players.length===1?'':'s'} will fill the grid</div>`:'');
   const me=L.players.find(p=>p.id===Net.myId);const taken=new Set(L.players.filter(p=>p.id!==Net.myId).map(p=>p.ch));
   const cc=$('chars3');cc.innerHTML='';CHARACTERS.forEach((ch,i)=>{const d=document.createElement('div');d.className='card'+(me&&i===me.ch?' sel':'')+(taken.has(i)?' dis':'');d.tabIndex=0;

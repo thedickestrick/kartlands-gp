@@ -132,7 +132,7 @@
   td i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:8px;vertical-align:-1px}
   #loading{font-family:var(--display);color:var(--muted);font-size:14px}
   @media (prefers-reduced-motion:reduce){#itembox.roll{animation:none}.btn,.card{transition:none}}
-  @media (max-width:640px){.panel{padding:18px 16px}.keys{display:none}}
+  @media (max-width:640px){.panel{padding:18px 16px}.keys{font-size:13px}}
 </style>
 
 <canvas id="c"></canvas>
@@ -154,9 +154,23 @@
 
 <div id="menu" class="layer center">
   <div class="panel" id="menuPanel">
-    <div class="eyebrow">Eight racers · Three circuits · Zero mercy</div>
+    <div class="eyebrow">Eight racers · Twelve circuits · Zero mercy</div>
     <h1>KARTLANDS<br>GRAND PRIX</h1>
-    <p style="margin-top:14px">Slide through corners to charge a boost, grab item crates, and knock your rivals off the line. Three laps decide it.</p>
+    <p style="margin-top:14px">Slide through corners to charge a boost, grab item crates, and knock your rivals off the line.</p>
+    <div class="modes">
+      <button class="mode" id="btnSolo"><b>Solo race</b><span>You against seven AI rivals. Keyboard or touch.</span></button>
+      <button class="mode" id="btnSplit"><b>2-player split screen</b><span>Share one keyboard. Player 1 drives with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>Shift</kbd> drifts, <kbd>E</kbd> fires. Player 2 drives with the arrow keys, <kbd>Space</kbd> drifts, <kbd>Enter</kbd> fires.</span></button>
+      <button class="mode" id="btnOnline"><b>Online race</b><span>Host a room and share a five-letter code, or join a friend's. Up to eight racers over LAN or the internet, AI fills the rest.</span></button>
+    </div>
+    <div class="row"><button class="btn ghost" id="btnHelp">How to play</button><button class="btn ghost" id="btnQuality" title="Cycle render quality">Graphics: Sharp</button><span id="loading">Loading engine…</span></div>
+  </div>
+</div>
+
+<div id="help" class="layer center" style="display:none">
+  <div class="panel">
+    <div class="eyebrow">How to play</div>
+    <h2>Controls</h2>
+    <p>Hold drift while turning to charge a boost, then let go. Longer drifts give bigger boosts. Item crates hand out turbos, rockets, oil, shields and thunderclaps. Three laps decide it.</p>
     <div class="keys">
       <span><kbd>W</kbd> / <kbd>↑</kbd></span><span>Accelerate</span>
       <span><kbd>S</kbd> / <kbd>↓</kbd></span><span>Brake / reverse</span>
@@ -167,12 +181,7 @@
       <span><kbd>Esc</kbd></span><span>Pause</span>
       <span>🎮</span><span>Controller: either stick or the d-pad steers, right trigger, A, or left stick forward accelerates, left trigger, B, or left stick back brakes, bumpers or X drift, Y fires, Back resets, Start pauses. In menus the d-pad or sticks move, A picks, B goes back, and letters in name and code fields can be picked with up and down. A second pad drives Player 2 in split screen.</span>
     </div>
-    <div class="modes">
-      <button class="mode" id="btnSolo"><b>Solo race</b><span>You against seven AI rivals. Keyboard or touch.</span></button>
-      <button class="mode" id="btnSplit"><b>2-player split screen</b><span>Share one keyboard. Player 1 drives with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>Shift</kbd> drifts, <kbd>E</kbd> fires. Player 2 drives with the arrow keys, <kbd>Space</kbd> drifts, <kbd>Enter</kbd> fires.</span></button>
-      <button class="mode" id="btnOnline"><b>Online race</b><span>Host a room and share a five-letter code, or join a friend's. Up to eight racers over LAN or the internet, AI fills the rest.</span></button>
-    </div>
-    <div class="row"><button class="btn ghost" id="btnQuality" title="Cycle render quality">Graphics: Sharp</button><span id="loading">Loading engine…</span></div>
+    <div class="row"><button class="btn" id="btnHelpBack">Back</button></div>
   </div>
 </div>
 
@@ -1141,7 +1150,7 @@ function pollGamepads(){if(!navigator.getGamepads)return;let pads;try{pads=navig
       if(now.a&&!prev.a)menuA();if(now.b&&!prev.b)menuB();if(now.start&&!prev.start)menuStart();}
     gpPrev[p.index]=now;}}
 // ---------- controller navigation for menus: focus ring, spatial moves, A / B / Start, and letter picking in inputs
-const MENU_PANELS=['pause','results','lobby','online','pick','menu'];
+const MENU_PANELS=['pause','results','lobby','online','pick','help','menu'];
 function activePanel(){for(const id of MENU_PANELS){const el=$(id);if(el&&getComputedStyle(el).display!=='none')return el;}return null;}
 function focusables(panel){return [...panel.querySelectorAll('button,.card,input')].filter(e=>e.offsetParent!==null&&!e.disabled&&!e.classList.contains('dis')&&e.style.display!=='none');}
 let gpFocusEl=null,gpEdit=null;const gpRep={};
@@ -1158,8 +1167,8 @@ function menuMove(dx,dy){const panel=activePanel();if(!panel)return;const list=f
 function menuA(){if(gpEdit){endEdit(true);return;}const panel=activePanel();if(!panel)return;const list=focusables(panel);if(!gpFocusEl||!list.includes(gpFocusEl)){if(list.length)gpFocus(list[0]);return;}
   const el=gpFocusEl;if(el.tagName==='INPUT'){beginEdit(el);return;}const idx=list.indexOf(el);const before=panel.id;el.click();
   setTimeout(()=>{const p=activePanel();if(!p)return;const l=focusables(p);if(!l.length){gpFocus(null);return;}if(p.id!==before){gpFocus(l[0]);}else if(!gpFocusEl||!document.contains(gpFocusEl)||!p.contains(gpFocusEl)){gpFocus(l[Math.min(idx,l.length-1)]);}},40);}
-function menuB(){if(gpEdit){endEdit(false);return;}const panel=activePanel();if(!panel)return;const back={pause:'btnResume',pick:'btnBack',online:'btnOnlineBack',lobby:'btnLeave',results:'btnMenu'}[panel.id];if(back){$(back).click();setTimeout(()=>{const p=activePanel();if(p){const l=focusables(p);if(l.length)gpFocus(l[0]);}},40);}}
-function menuStart(){if(gpEdit){endEdit(true);return;}const panel=activePanel();if(!panel)return;const primary={pause:'btnResume',results:'btnAgain',lobby:'btnLobbyStart',pick:'btnRace',online:'btnJoin',menu:'btnSolo'}[panel.id];const el=primary&&$(primary);if(el&&el.offsetParent!==null&&el.style.display!=='none'){const before=panel.id;el.click();setTimeout(()=>{const p=activePanel();if(p&&p.id!==before){const l=focusables(p);gpFocus(l.length?l[0]:null);}},40);}}
+function menuB(){if(gpEdit){endEdit(false);return;}const panel=activePanel();if(!panel)return;const back={pause:'btnResume',pick:'btnBack',online:'btnOnlineBack',lobby:'btnLeave',results:'btnMenu',help:'btnHelpBack'}[panel.id];if(back){$(back).click();setTimeout(()=>{const p=activePanel();if(p){const l=focusables(p);if(l.length)gpFocus(l[0]);}},40);}}
+function menuStart(){if(gpEdit){endEdit(true);return;}const panel=activePanel();if(!panel)return;const primary={pause:'btnResume',results:'btnAgain',lobby:'btnLobbyStart',pick:'btnRace',online:'btnJoin',menu:'btnSolo',help:'btnHelpBack'}[panel.id];const el=primary&&$(primary);if(el&&el.offsetParent!==null&&el.style.display!=='none'){const before=panel.id;el.click();setTimeout(()=>{const p=activePanel();if(p&&p.id!==before){const l=focusables(p);gpFocus(l.length?l[0]:null);}},40);}}
 const CHARSETS={code:'ABCDEFGHJKLMNPQRSTUVWXYZ23456789',name:'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 '};
 function beginEdit(el){const isCode=el.id==='netCode';const set=isCode?CHARSETS.code:CHARSETS.name;const max=isCode?5:12;let v=el.value||'';if(isCode){v=v.toUpperCase().replace(/[^A-Z0-9]/g,'');while(v.length<5)v+='A';v=v.slice(0,5);}else if(!v)v='Racer';el.value=v;
   gpEdit={el,pos:0,set,max};el.classList.add('gpedit');try{el.focus();el.setSelectionRange(0,1);}catch(e){}Net.status('Up / down changes the letter, left / right moves, A confirms, B cancels.');}
@@ -1209,8 +1218,9 @@ function buildMenus(){const split=G.mode==='split';buildCharGrid('chars',0);$('p
   d.querySelector('.swatch').style.setProperty('--x','');d.onclick=()=>{G.selTrack=i;Audio.sfx('ui');buildMenus();};d.onkeydown=e=>{if(e.key==='Enter'||e.key===' ')d.onclick();};tc.appendChild(d);});}
 buildMenus();
 function openPick(mode){G.mode=mode;if(mode==='split'&&G.selChars[0]===G.selChars[1])G.selChars[1]=(G.selChars[0]+1)%NUM_KARTS;Audio.init();Audio.resume();Audio.sfx('ui');buildMenus();$('menu').style.display='none';$('pick').style.display='flex';}
+$('btnHelp').onclick=()=>{Audio.init();Audio.sfx('ui');$('menu').style.display='none';$('help').style.display='flex';};$('btnHelpBack').onclick=()=>{Audio.sfx('ui');$('help').style.display='none';$('menu').style.display='flex';};
 $('btnSolo').onclick=()=>openPick('solo');$('btnSplit').onclick=()=>openPick('split');
-function openOnlinePanel(){G.mode='online';['menu','pick','lobby','results'].forEach(id=>$(id).style.display='none');$('online').style.display='flex';Net.status('');try{if(!$('netName').value)$('netName').value=localStorage.getItem('kgp-name')||'';}catch(e){}const h=Net.hint();$('netHint').textContent=h?h:'Playing inside the Claude app? Online rooms need the web version: '+PAGES_URL;}
+function openOnlinePanel(){G.mode='online';['menu','pick','lobby','results','help'].forEach(id=>$(id).style.display='none');$('online').style.display='flex';Net.status('');try{if(!$('netName').value)$('netName').value=localStorage.getItem('kgp-name')||'';}catch(e){}const h=Net.hint();$('netHint').textContent=h?h:'Playing inside the Claude app? Online rooms need the web version: '+PAGES_URL;}
 $('btnOnline').onclick=()=>{Audio.init();Audio.resume();Audio.sfx('ui');openOnlinePanel();$('netName').focus();};
 $('btnInvite').onclick=()=>{const u=Net.inviteUrl();if(!u)return;const done=()=>{$('inviteMsg').textContent='Copied: '+u;};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(u).then(done,()=>{$('inviteMsg').textContent=u;});else $('inviteMsg').textContent=u;};
 $('btnOnlineBack').onclick=()=>{Net.leave(true);$('online').style.display='none';$('menu').style.display='flex';};

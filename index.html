@@ -509,8 +509,8 @@ function buildTrack(def){
   for(let i=0;i<N;i+=Math.round(N/14)){const s=samples[i];[-1,1].forEach(sg=>{const pole=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,4,6),gateMat);const pp=s.p.clone().addScaledVector(s.r,sg*(hw+OFFROAD_W+1.5));pole.position.set(pp.x,pp.y+2,pp.z);pole.castShadow=true;group.add(pole);
     const flag=new THREE.Mesh(new THREE.PlaneGeometry(1.6,1),flagMat);flag.position.set(pp.x,pp.y+3.5,pp.z);flag.rotation.y=Math.atan2(s.t.x,s.t.z)+Math.PI/2;group.add(flag);});}
   // item boxes
-  const boxes=[];const boxGeo=new THREE.BoxGeometry(1.7,1.7,1.7),boxMat=new THREE.MeshPhysicalMaterial({color:0x8ef0ff,transparent:true,opacity:.55,roughness:.1,metalness:.1,transmission:0,emissive:0x2266aa,emissiveIntensity:.35});
-  const coreGeo=new THREE.IcosahedronGeometry(.55,0),coreMat=new THREE.MeshStandardMaterial({color:0xffd23f,emissive:0xff9900,emissiveIntensity:.8});
+  const boxes=[];const boxGeo=assetGeo('itembox',()=>new THREE.BoxGeometry(1.7,1.7,1.7)),boxMat=new THREE.MeshPhysicalMaterial({color:0x8ef0ff,transparent:true,opacity:.55,roughness:.1,metalness:.1,transmission:0,emissive:0x2266aa,emissiveIntensity:.35});
+  const coreGeo=assetGeo('itembox_core',()=>new THREE.IcosahedronGeometry(.55,0)),coreMat=new THREE.MeshStandardMaterial({color:0xffd23f,emissive:0xff9900,emissiveIntensity:.8});
   [0.14,0.36,0.6,0.84].forEach(f=>{const i=Math.floor(f*N);const s=samples[i];[-0.55,0,0.55].forEach(l=>{const g=new THREE.Group();const mesh=new THREE.Mesh(boxGeo,boxMat);mesh.castShadow=true;g.add(mesh);const core=new THREE.Mesh(coreGeo,coreMat);g.add(core);
     const p=s.p.clone().addScaledVector(s.r,l*hw);g.position.set(p.x,p.y+1.4,p.z);group.add(g);boxes.push({g,mesh,core,pos:g.position.clone(),active:true,timer:0,idx:i});});});
   return {def,group,curve,samples,N,segLen,length,width:W,hw,boxes,gates,bounds,startIdx:0};
@@ -527,10 +527,10 @@ function buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N){
   const set=(im,i,x,y,z,s,rotY)=>{v.set(x,y,z);sc.set(s[0],s[1],s[2]);q.setFromAxisAngle(up,rotY||0);m.compose(v,q,sc);im.setMatrixAt(i,m);};
   const type=def.scenery||'trees';
   if(type==='trees'){
-    const trunks=inst(new THREE.CylinderGeometry(.35,.5,3,12),M(def.trunk),420);const leaves=inst(new THREE.ConeGeometry(2.4,6,12),M(def.tree,.9),420);
+    const trunks=inst(assetGeo('tree_trunk',()=>new THREE.CylinderGeometry(.35,.5,3,12)),M(def.trunk),420);const leaves=inst(assetGeo('tree_leaves',()=>new THREE.ConeGeometry(2.4,6,12)),M(def.tree,.9),420);
     const n=place(420,hw+OFFROAD_W+7,80,(x,y,z,i)=>{const s=0.8+rng()*1.1;const a=rng()*TAU;set(trunks,i,x,y+1.5*s-0.3,z,[s,s,s],a);set(leaves,i,x,y+5.5*s-0.3,z,[s,s,s],a);});trunks.count=leaves.count=n;}
   else if(type==='palms'){
-    const trunks=inst(new THREE.CylinderGeometry(.2,.42,7,10),M(def.trunk),240);const fronds=inst(new THREE.ConeGeometry(.6,4.4,5),M(def.tree,.8),240*6);
+    const trunks=inst(assetGeo('palm_trunk',()=>new THREE.CylinderGeometry(.2,.42,7,10)),M(def.trunk),240);const fronds=inst(assetGeo('palm_frond',()=>new THREE.ConeGeometry(.6,4.4,5)),M(def.tree,.8),240*6);
     const tilt=new THREE.Quaternion(),fq=new THREE.Quaternion(),ry=new THREE.Quaternion(),rx=new THREE.Quaternion().setFromEuler(new THREE.Euler(1.75,0,0)),top=new THREE.Vector3();
     const n=place(240,hw+OFFROAD_W+6,90,(x,y,z,i)=>{const s=.7+rng()*.8;const lean=rng()*.3,dir=rng()*TAU;tilt.setFromEuler(new THREE.Euler(Math.sin(dir)*lean,0,Math.cos(dir)*lean));
       v.set(0,3.5*s,0).applyQuaternion(tilt).add(new THREE.Vector3(x,y-.3,z));sc.set(s,s,s);m.compose(v,tilt,sc);trunks.setMatrixAt(i,m);
@@ -540,7 +540,7 @@ function buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N){
     const water=new THREE.Mesh(new THREE.CircleGeometry(760,64),new THREE.MeshStandardMaterial({color:0x2a8fd4,roughness:.15,metalness:.2}));water.rotation.x=-Math.PI/2;water.position.set(maxX+840,-1.2,(minZ+maxZ)/2);group.add(water);
     const shore=new THREE.Mesh(new THREE.CircleGeometry(775,64),M(0xf3e6c2,1));shore.rotation.x=-Math.PI/2;shore.position.set(maxX+840,-1.35,(minZ+maxZ)/2);group.add(shore);}
   else if(type==='desert'){
-    const cactMat=M(def.tree,.85);const bodies=inst(new THREE.CapsuleGeometry(.35,3,4,10),cactMat,150);const arms=inst(new THREE.CapsuleGeometry(.2,1.1,4,8),cactMat,300);
+    const cactMat=M(def.tree,.85);const bodies=inst(assetGeo('cactus_body',()=>new THREE.CapsuleGeometry(.35,3,4,10)),cactMat,150);const arms=inst(assetGeo('cactus_arm',()=>new THREE.CapsuleGeometry(.2,1.1,4,8)),cactMat,300);
     const n=place(150,hw+OFFROAD_W+5,80,(x,y,z,i)=>{const s=.6+rng()*.9;set(bodies,i,x,y+1.9*s,z,[s,s,s],rng()*TAU);const a=rng()*TAU;
       [-1,1].forEach((sg,j)=>{v.set(x+Math.cos(a)*sg*.8*s,y+2.1*s+rng()*.7*s,z-Math.sin(a)*sg*.8*s);sc.set(s,s,s);q.setFromEuler(new THREE.Euler(0,a,sg*1.15));m.compose(v,q,sc);arms.setMatrixAt(i*2+j,m);});});
     bodies.count=n;arms.count=n*2;
@@ -559,7 +559,7 @@ function buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N){
     const planetCols=[0xff9a4a,0x6fb1ff,0xd94fa0,0xffe07a,0x8fe0c8,0xb07cff];
     for(let i=0;i<6;i++){const a=rng()*TAU,dist=380+rng()*220,r=18+rng()*40;const pm=new THREE.Mesh(new THREE.SphereGeometry(r,28,20),M(planetCols[i%planetCols.length],.8));pm.position.set(cx+Math.cos(a)*dist,-120+rng()*260,cz+Math.sin(a)*dist);group.add(pm);
       if(i===1){const ring=new THREE.Mesh(new THREE.TorusGeometry(r*1.7,r*.12,8,48),M(0xe8dcc0,.7));ring.position.copy(pm.position);ring.rotation.x=Math.PI/2.4;group.add(ring);}}
-    const roids=inst(new THREE.DodecahedronGeometry(1,0),M(0x6d6a75,1,0,true),140);const q2=new THREE.Quaternion();const n=place(140,hw+OFFROAD_W+14,120,(x,y,z,i)=>{const sz=1.5+rng()*5;v.set(x,-40+rng()*90,z);sc.set(sz,sz*(.6+rng()*.6),sz);q2.setFromEuler(new THREE.Euler(rng()*3,rng()*3,rng()*3));m.compose(v,q2,sc);roids.setMatrixAt(i,m);});roids.count=n;
+    const roids=inst(assetGeo('rock',()=>new THREE.DodecahedronGeometry(1,0)),M(0x6d6a75,1,0,true),140);const q2=new THREE.Quaternion();const n=place(140,hw+OFFROAD_W+14,120,(x,y,z,i)=>{const sz=1.5+rng()*5;v.set(x,-40+rng()*90,z);sc.set(sz,sz*(.6+rng()*.6),sz);q2.setFromEuler(new THREE.Euler(rng()*3,rng()*3,rng()*3));m.compose(v,q2,sc);roids.setMatrixAt(i,m);});roids.count=n;
     if(type==='planetoid'){const R=115;const planet=new THREE.Mesh(new THREE.SphereGeometry(R,48,32),M(0x3fb04a,.9));planet.position.set(cx,-R-28,cz);planet.receiveShadow=true;group.add(planet);const top=-28;
       const wall=new THREE.Mesh(new THREE.CylinderGeometry(7,7,6,24),M(0xf3e2c0,.8));wall.position.set(cx,top+3,cz);wall.castShadow=true;group.add(wall);const dome=new THREE.Mesh(new THREE.SphereGeometry(7.4,28,16,0,TAU,0,Math.PI/2),M(0xff5c4d,.6));dome.position.set(cx,top+6,cz);dome.castShadow=true;group.add(dome);
       const door=new THREE.Mesh(new THREE.BoxGeometry(2.4,4,.4),M(0x3a2a1a,.9));door.position.set(cx,top+2,cz+7);group.add(door);
@@ -568,7 +568,7 @@ function buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N){
   else if(type==='portals'){
     const rings=inst(new THREE.TorusGeometry(2.6,.22,10,32),new THREE.MeshStandardMaterial({color:0x2bff7a,emissive:0x1aff6a,emissiveIntensity:1.3,roughness:.3}),60,false);const q3=new THREE.Quaternion();
     const n=place(60,hw+OFFROAD_W+8,110,(x,y,z,i)=>{const sz=.8+rng()*1.6;v.set(x,y+4+rng()*22,z);sc.set(sz,sz,sz);q3.setFromEuler(new THREE.Euler(rng()*1.2-.6,rng()*TAU,0));m.compose(v,q3,sc);rings.setMatrixAt(i,m);});rings.count=n;
-    const crystals=inst(new THREE.ConeGeometry(1,1,6),new THREE.MeshStandardMaterial({color:0x7ff0ff,emissive:0x1fb8c8,emissiveIntensity:.6,roughness:.2,metalness:.3,flatShading:true}),160);
+    const crystals=inst(assetGeo('crystal',()=>new THREE.ConeGeometry(1,1,6)),new THREE.MeshStandardMaterial({color:0x7ff0ff,emissive:0x1fb8c8,emissiveIntensity:.6,roughness:.2,metalness:.3,flatShading:true}),160);
     const n2=place(160,hw+OFFROAD_W+4,90,(x,y,z,i)=>{const r=1+rng()*2.5,h=3+rng()*10;set(crystals,i,x,y+h/2-.8,z,[r,h,r],rng()*TAU);});crystals.count=n2;
     const pods=inst(new THREE.SphereGeometry(1,20,14),M(0xcfd8e6,.4,.5),24);const n3=place(24,hw+OFFROAD_W+16,120,(x,y,z,i)=>{const r=5+rng()*9;set(pods,i,x,y+r*.55,z,[r,r*.55,r],rng()*TAU);});pods.count=n3;}
   // landmarks and roadside lights shared across worlds
@@ -584,7 +584,7 @@ function buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N){
     for(let i=0;i<N&&c<96;i+=Math.round(N/48)){const s=samples[i];const sg=c%2?1:-1;const p=s.p.clone().addScaledVector(s.r,sg*(hw+OFFROAD_W+2));set(poles,c,p.x,p.y+2.1,p.z,[1,1,1],0);set(lamps,c,p.x,p.y+4.4,p.z,[1,1,1],0);c++;}poles.count=lamps.count=c;}
   if(def.noRocks)return;
   // rocks everywhere
-  const rocks=inst(new THREE.DodecahedronGeometry(1.2,0),M(def.rock,1,0,true),110);const rq=new THREE.Quaternion();
+  const rocks=inst(assetGeo('rock',()=>new THREE.DodecahedronGeometry(1.2,0)),M(def.rock,1,0,true),110);const rq=new THREE.Quaternion();
   let placed=0,tries=0;while(placed<110&&tries<3000){tries++;const x=rand2(rng,minX-60,maxX+60),z=rand2(rng,minZ-60,maxZ+60);if(!farFromTrack(x,z,hw+OFFROAD_W+2))continue;const s=.6+rng()*1.6;const y=nearTrackY(samples,x,z);v.set(x,y+s*.4-.2,z);sc.set(s,s*.7,s);rq.setFromEuler(new THREE.Euler(rng(),rng()*TAU,rng()));m.compose(v,rq,sc);rocks.setMatrixAt(placed,m);placed++;}
   rocks.count=placed;
 }
@@ -594,8 +594,63 @@ function rand2(rng,a,b){return a+rng()*(b-a);}
 function nearTrackY(samples,x,z){let best=1e9,y=0;for(let i=0;i<samples.length;i+=8){const p=samples[i].p;const d=(p.x-x)**2+(p.z-z)**2;if(d<best){best=d;y=p.y;}}
   const dist=Math.sqrt(best);return dist<40?y*(1-dist/40)-1.5*(dist/40):-1.5;}
 
+// ============================================================ Blender models
+// assets/kartlands.glb is built by blender/build_assets.py. Until it loads (or if it can't, e.g. when the
+// page is opened straight from disk) every model falls back to the built-in three.js shapes below.
+const Assets={ready:false,meshes:{},mats:{}};
+function parseGLB(buf){const dv=new DataView(buf);if(dv.getUint32(0,true)!==0x46546C67)throw new Error('not a GLB file');
+  let json=null,bin=null;for(let off=12;off<dv.byteLength;){const len=dv.getUint32(off,true),type=dv.getUint32(off+4,true);
+    if(type===0x4E4F534A)json=JSON.parse(new TextDecoder().decode(new Uint8Array(buf,off+8,len)));else if(type===0x004E4942)bin=buf.slice(off+8,off+8+len);off+=8+len;}
+  const TYPES={5121:Uint8Array,5123:Uint16Array,5125:Uint32Array,5126:Float32Array},SIZE={SCALAR:1,VEC3:3};
+  const acc=i=>{const a=json.accessors[i],v=json.bufferViews[a.bufferView];if(v.byteStride&&v.byteStride!==SIZE[a.type]*TYPES[a.componentType].BYTES_PER_ELEMENT)throw new Error('interleaved data');
+    return new TYPES[a.componentType](bin,(v.byteOffset||0)+(a.byteOffset||0),a.count*SIZE[a.type]).slice();};
+  const out={},mtx=new THREE.Matrix4();
+  json.nodes.forEach(n=>{if(n.mesh==null)return;mtx.compose(new THREE.Vector3().fromArray(n.translation||[0,0,0]),new THREE.Quaternion().fromArray(n.rotation||[0,0,0,1]),new THREE.Vector3().fromArray(n.scale||[1,1,1]));
+    out[n.name]=json.meshes[n.mesh].primitives.map(pr=>{const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(acc(pr.attributes.POSITION),3));
+      if(pr.indices!=null)geo.setIndex(new THREE.BufferAttribute(acc(pr.indices),1));
+      if(pr.attributes.NORMAL!=null)geo.setAttribute('normal',new THREE.BufferAttribute(acc(pr.attributes.NORMAL),3));else geo.computeVertexNormals();
+      geo.applyMatrix4(mtx);geo.computeBoundingSphere();geo.userData.asset=true;return {geo,mat:pr.material!=null?json.materials[pr.material]:null};});});
+  return out;}
+// the colours authored in Blender, for parts the game doesn't recolour (rocket, oil)
+function assetMat(m){if(!m)return new THREE.MeshStandardMaterial();if(Assets.mats[m.name])return Assets.mats[m.name];
+  const p=m.pbrMetallicRoughness||{},c=p.baseColorFactor||[1,1,1,1];
+  const mat=new THREE.MeshStandardMaterial({color:new THREE.Color(c[0],c[1],c[2]),metalness:p.metallicFactor==null?1:p.metallicFactor,roughness:p.roughnessFactor==null?1:p.roughnessFactor});
+  if(m.emissiveFactor){const st=m.extensions&&m.extensions.KHR_materials_emissive_strength;mat.emissive.setRGB(m.emissiveFactor[0],m.emissiveFactor[1],m.emissiveFactor[2]);mat.emissiveIntensity=st?st.emissiveStrength:1;}
+  return Assets.mats[m.name]=mat;}
+// one Blender part as a group of meshes; `mats` maps material slot names (Body, Accent, ...) to the racer's own materials
+function assetPart(name,mats,shadow){const g=new THREE.Group();(Assets.meshes[name]||[]).forEach(pr=>{const m=new THREE.Mesh(pr.geo,(mats&&pr.mat&&mats[pr.mat.name])||assetMat(pr.mat));m.castShadow=shadow!==false;g.add(m);});return g;}
+const assetGeo=(name,fallback)=>{const p=Assets.ready&&Assets.meshes[name];return p?p[0].geo:fallback();};
+fetch('assets/kartlands.glb').then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.arrayBuffer();}).then(buf=>{Assets.meshes=parseGLB(buf);Assets.ready=!!Assets.meshes.kart_body;})
+  .catch(e=>console.warn('Blender models unavailable, using built-in shapes:',e.message||e));
+
 // ============================================================ kart model
+function kartEffects(g){
+  const flame=new THREE.Mesh(new THREE.ConeGeometry(.45,2.2,16),new THREE.MeshBasicMaterial({color:0xff8a1f,transparent:true,opacity:.9}));flame.rotation.x=Math.PI/2;flame.position.set(0,.8,-3.0);flame.visible=false;g.add(flame);
+  const flame2=new THREE.Mesh(new THREE.ConeGeometry(.25,1.5,12),new THREE.MeshBasicMaterial({color:0xffe066}));flame2.rotation.x=Math.PI/2;flame2.position.set(0,.8,-2.7);flame2.visible=false;g.add(flame2);
+  const shield=new THREE.Mesh(new THREE.SphereGeometry(2.4,36,24),new THREE.MeshPhysicalMaterial({color:0x66ccff,transparent:true,opacity:.28,roughness:.1,side:THREE.DoubleSide}));shield.position.y=1;shield.visible=false;g.add(shield);
+  return {flame,flame2,shield};}
+// the kart and driver modelled in Blender: same pivots as the built-in model, so steering, lean and arm reach animate the same way
+function buildKartModelGLB(ch){
+  const g=new THREE.Group();g.rotation.order='YXZ';
+  const M=(c,r,m)=>new THREE.MeshStandardMaterial({color:c,roughness:r==null?.5:r,metalness:m||0});
+  const mats={Body:M(ch.color,.38,.2),BodyDark:M(new THREE.Color(ch.color).multiplyScalar(.62).getHex(),.5,.15),Accent:M(ch.accent,.4,.1),Dark:M(0x1d1f26,.8),Chrome:M(0xd8dde6,.22,.9),Rubber:M(0x15161a,.95),
+    Glass:new THREE.MeshPhysicalMaterial({color:0x1b2a3a,roughness:.08,metalness:.4,clearcoat:1,clearcoatRoughness:.05}),Lamp:new THREE.MeshStandardMaterial({color:0xfff4c2,emissive:0xffe08a,emissiveIntensity:1.2,roughness:.3}),
+    Plate:M(0xf6f1e6,.6),Suit:M(ch.suit,.65),Skin:M(ch.skin,.75),Helmet:M(ch.helmet,.28,.12),Glove:M(0x2a2d36,.8),Eye:M(0xf7f7f2,.35),
+    Glow:new THREE.MeshStandardMaterial({color:ch.accent,emissive:ch.accent,emissiveIntensity:.7,roughness:.4})};
+  const part=(name,parent,shadow)=>{const p=assetPart(name,mats,shadow);(parent||g).add(p);return p;};
+  part('kart_body');
+  const wheelCtl=new THREE.Group();wheelCtl.position.set(0,1.22,.28);wheelCtl.rotation.x=-.9;g.add(wheelCtl);part('kart_steer',wheelCtl);
+  const wheels=[],front=[];
+  [[-1.15,1.05],[1.15,1.05],[-1.15,-1.05],[1.15,-1.05]].forEach(([x,z],i)=>{const piv=new THREE.Group();piv.position.set(x,.5,z);piv.rotation.order='YXZ';
+    const w=part('kart_wheel',piv);if(x<0)w.scale.x=-1;g.add(piv);wheels.push(piv);if(i<2)front.push(piv);});   // hubcaps face outward on both sides
+  const driver=new THREE.Group();driver.position.set(0,.86,-.5);g.add(driver);part('driver_body',driver);
+  const head=new THREE.Group();head.position.set(0,1.02,0);driver.add(head);part('driver_head',head);part('topper_'+ch.name.toLowerCase(),head);
+  const arms=[-1,1].map(sg=>{const piv=new THREE.Group();piv.position.set(sg*.36,.74,.08);driver.add(piv);
+    const m=part('driver_arm',piv);m.rotation.x=Math.PI/2;m.position.z=.5;const hand=part('driver_glove',piv,false);hand.position.z=1;return {piv,m,hand,sg};});
+  return {g,wheels,front,...kartEffects(g),driver,head,wheelCtl,arms};
+}
 function buildKartModel(ch){
+  if(Assets.ready)return buildKartModelGLB(ch);
   const g=new THREE.Group();g.rotation.order='YXZ';
   const M=(c,r,m)=>new THREE.MeshStandardMaterial({color:c,roughness:r==null?.5:r,metalness:m||0});
   const bodyMat=M(ch.color,.38,.2),bodyDark=M(new THREE.Color(ch.color).multiplyScalar(.62).getHex(),.5,.15);
@@ -650,11 +705,7 @@ function buildKartModel(ch){
   const arms=[-1,1].map(sg=>{const piv=new THREE.Group();piv.position.set(sg*.36,.74,.08);driver.add(piv);
     const m=add(new THREE.CapsuleGeometry(.085,1,4,12),suit,0,0,.5,{parent:piv,rx:Math.PI/2});
     const hand=add(new THREE.SphereGeometry(.11,14,10),glove,0,0,1,{parent:piv,shadow:false});return {piv,m,hand,sg};});
-  // ---- effects
-  const flame=new THREE.Mesh(new THREE.ConeGeometry(.45,2.2,16),new THREE.MeshBasicMaterial({color:0xff8a1f,transparent:true,opacity:.9}));flame.rotation.x=Math.PI/2;flame.position.set(0,.8,-3.0);flame.visible=false;g.add(flame);
-  const flame2=new THREE.Mesh(new THREE.ConeGeometry(.25,1.5,12),new THREE.MeshBasicMaterial({color:0xffe066}));flame2.rotation.x=Math.PI/2;flame2.position.set(0,.8,-2.7);flame2.visible=false;g.add(flame2);
-  const shield=new THREE.Mesh(new THREE.SphereGeometry(2.4,36,24),new THREE.MeshPhysicalMaterial({color:0x66ccff,transparent:true,opacity:.28,roughness:.1,side:THREE.DoubleSide}));shield.position.y=1;shield.visible=false;g.add(shield);
-  return {g,wheels,front,flame,flame2,shield,driver,head,wheelCtl,arms};
+  return {g,wheels,front,...kartEffects(g),driver,head,wheelCtl,arms};
 }
 // each racer gets a signature silhouette on the helmet
 function addTopper(ch,head,m){const {accent,helmet,skin,add}=m;const glow=new THREE.MeshStandardMaterial({color:ch.accent,emissive:ch.accent,emissiveIntensity:.7,roughness:.4});
@@ -756,7 +807,7 @@ try{G.splitDir=localStorage.getItem('kgp-split')==='v'?'v':'h';}catch(e){}
 function setupViews(){G.views.forEach(v=>v.hud.root.remove());G.views=[];
   G.players.forEach((k,i)=>{const hud=buildHUD();hud.root.classList.add('v'+i);const v={i,kart:k,cam:cams[i],camPos:new THREE.Vector3(),camLook:new THREE.Vector3(),shake:0,hud,mx:hud.el.minimap.getContext('2d'),msgT:0,msgTimed:false,hudTick:i*0.12};k.view=v;G.views.push(v);});
   $('hud').classList.toggle('split',G.views.length>1);setSplitDir(G.splitDir);}
-function disposeGroup(g){g.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material){const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>{if(m.map&&m.map!==roadTex&&m.map!==curbTex&&m.map!==checkerTex)m.map.dispose();m.dispose();});}});}
+function disposeGroup(g){g.traverse(o=>{if(o.geometry&&!o.geometry.userData.asset)o.geometry.dispose();if(o.material){const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>{if(m.map&&m.map!==roadTex&&m.map!==curbTex&&m.map!==checkerTex)m.map.dispose();m.dispose();});}});}
 
 // ============================================================ track queries
 function updateTrackIndex(k,full){const S=track.samples,N=track.N;let best=1e18,bi=k.idx;const x=k.pos.x,z=k.pos.z;
@@ -888,7 +939,7 @@ let lastFlash=0;
 function flashScreen(){const now=performance.now();if(now-lastFlash<150)return;lastFlash=now;const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;background:#fff;pointer-events:none;opacity:.8;transition:opacity .4s';document.body.appendChild(d);requestAnimationFrame(()=>{d.style.opacity='0';});setTimeout(()=>d.remove(),450);}
 const rocketGeo=new THREE.ConeGeometry(.45,1.8,10);const rocketMat=new THREE.MeshStandardMaterial({color:0xff5c4d,emissive:0xff2200,emissiveIntensity:.6,roughness:.4});
 const finGeo=new THREE.BoxGeometry(1.2,.1,.5),finMat=new THREE.MeshStandardMaterial({color:0xffd23f});
-function buildRocketMesh(){const mesh=new THREE.Group();const cone=new THREE.Mesh(rocketGeo,rocketMat);cone.rotation.x=Math.PI/2;mesh.add(cone);
+function buildRocketMesh(){if(Assets.ready)return assetPart('rocket');const mesh=new THREE.Group();const cone=new THREE.Mesh(rocketGeo,rocketMat);cone.rotation.x=Math.PI/2;mesh.add(cone);
   const fin=new THREE.Mesh(finGeo,finMat);fin.position.z=-.6;mesh.add(fin);const fin2=fin.clone();fin2.rotation.z=Math.PI/2;mesh.add(fin2);return mesh;}
 let netSeq=0;
 function spawnRocket(owner,p,target){const mesh=buildRocketMesh();
@@ -905,7 +956,7 @@ function updateProjectiles(dt){const S=track.samples,N=track.N;for(let i=G.proje
   let hit=false;for(const k of G.karts){if(k===r.owner&&r.life>7.3)continue;if(Math.hypot(k.pos.x-r.pos.x,k.pos.z-r.pos.z)<2.3){hitKart(k,'rocket');hit=true;break;}}
   if(hit||r.life<=0){rocketBurst(r.pos);scene.remove(r.mesh);G.projectiles.splice(i,1);}}}
 const oilGeo=new THREE.CircleGeometry(1.6,18);const oilMat=new THREE.MeshStandardMaterial({color:0x14141a,roughness:.15,metalness:.5});
-function buildOilMesh(){const mesh=new THREE.Mesh(oilGeo,oilMat);mesh.rotation.x=-Math.PI/2;return mesh;}
+function buildOilMesh(){if(Assets.ready)return assetPart('oil',null,false);const mesh=new THREE.Mesh(oilGeo,oilMat);mesh.rotation.x=-Math.PI/2;return mesh;}
 function spawnOil(p){const mesh=buildOilMesh();const h={id:++netSeq,mesh,pos:p.clone(),idx:0,life:40,finished:true};updateTrackIndex(h,true);h.pos.y=h.trackY+0.12;mesh.position.copy(h.pos);scene.add(mesh);G.hazards.push(h);
   if(G.hazards.length>18){const o=G.hazards.shift();scene.remove(o.mesh);}}
 function updateHazards(dt){for(let i=G.hazards.length-1;i>=0;i--){const h=G.hazards[i];h.life-=dt;

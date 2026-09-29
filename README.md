@@ -47,7 +47,7 @@ Opening the file directly also works for solo and split screen, but online rooms
 
 ## Models, textures and lighting
 
-The karts, drivers, helmet toppers, items and scenery props are modelled in Blender by a Python script, [`blender/build_assets.py`](blender/build_assets.py), and exported to `assets/kartlands.glb`. The game loads that file at startup and recolours each part per racer by material name (`Body`, `Accent`, `Helmet`, `Suit`, and so on).
+The karts and drivers are modelled from real-world measurements (a 125cc race kart and an adult driver in a full-face helmet), along with the items and scenery props, in Blender by a Python script, [`blender/build_assets.py`](blender/build_assets.py), and exported to `assets/kartlands.glb`. The file also carries pivot points (wheels, steering column, hips, neck, shoulders). The game reads them to animate steering, leaning and two-bone arm IK that keeps the hands on the wheel. Each racer's colours and livery (helmet design, race number panel, side-pod stickers) are applied by material name at runtime.
 
 To rebuild the models after editing the script, run it with Blender 4.2 or newer:
 

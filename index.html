@@ -704,11 +704,11 @@ function nearTrackY(samples,x,z){let best=1e9,y=0;for(let i=0;i<samples.length;i
 // ============================================================ Blender models
 // assets/kartlands.glb is built by blender/build_assets.py. Until it loads (or if it can't, e.g. when the
 // page is opened straight from disk) every model falls back to the built-in three.js shapes below.
-const Assets={ready:false,meshes:{}};
+const Assets={ready:false,meshes:{},pivots:{}};
 // meshes keyed by Blender object name; each is a list of primitives {geo, mat}, one per material slot
 function loadAssets(){new GLTFLoader().load('assets/kartlands.glb',gltf=>{gltf.scene.updateMatrixWorld(true);
-    gltf.scene.children.forEach(node=>{const prims=[];node.traverse(o=>{if(!o.isMesh)return;const geo=o.geometry.clone();geo.applyMatrix4(o.matrixWorld);geo.userData.asset=true;prims.push({geo,mat:o.material});});Assets.meshes[node.name]=prims;});
-    Assets.ready=!!Assets.meshes.kart_body;if(Assets.ready)onAssetsReady();},undefined,e=>console.warn('Blender models unavailable, using built-in shapes:',e.message||e));}
+    gltf.scene.children.forEach(node=>{if(node.name.startsWith('pivot_')){Assets.pivots[node.name]={p:node.position.clone(),q:node.quaternion.clone()};return;}const prims=[];node.traverse(o=>{if(!o.isMesh)return;const geo=o.geometry.clone();geo.applyMatrix4(o.matrixWorld);geo.userData.asset=true;prims.push({geo,mat:o.material});});Assets.meshes[node.name]=prims;});
+    Assets.ready=!!(Assets.meshes.kart_body&&Assets.pivots.pivot_driver);if(Assets.ready)onAssetsReady();},undefined,e=>console.warn('Blender models unavailable, using built-in shapes:',e.message||e));}
 // one Blender part as a group of meshes; `mats` maps material slot names (Body, Accent, ...) to the racer's own materials
 function assetPart(name,mats,shadow){const g=new THREE.Group();(Assets.meshes[name]||[]).forEach(pr=>{const m=new THREE.Mesh(pr.geo,(mats&&mats[pr.mat.name])||pr.mat);m.castShadow=shadow!==false;g.add(m);});return g;}
 const assetGeo=(name,fallback)=>{const p=Assets.ready&&Assets.meshes[name];return p?p[0].geo:fallback();};
@@ -720,26 +720,64 @@ function kartEffects(g){
   const flame2=new THREE.Mesh(new THREE.ConeGeometry(.25,1.5,12),new THREE.MeshBasicMaterial({color:0xffe066}));flame2.rotation.x=Math.PI/2;flame2.position.set(0,.8,-2.7);flame2.visible=false;g.add(flame2);
   const shield=new THREE.Mesh(new THREE.SphereGeometry(2.4,36,24),new THREE.MeshPhysicalMaterial({color:0x66ccff,transparent:true,opacity:.28,roughness:.1,side:THREE.DoubleSide}));shield.position.y=1;shield.visible=false;g.add(shield);
   return {flame,flame2,shield};}
-// the kart and driver modelled in Blender: same pivots as the built-in model, so steering, lean and arm reach animate the same way
+// ---- liveries: each racer's helmet design, number panel, side-pod stickers, and shared tyre lettering, drawn on canvases
+const liveryCache={};
+function canvasTex(w,h,draw){const c=document.createElement('canvas');c.width=w;c.height=h;draw(c.getContext('2d'),w,h);const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=MAX_ANISO;return t;}
+const hex=c=>'#'+new THREE.Color(c).getHexString();
+// helmet UVs are spherical: x = longitude (front of the helmet at the centre), y = latitude (crown at the top)
+function drawHelmet(x,W,H,ch){const base=hex(ch.helmet),acc=hex(ch.accent),dark='#15161a';x.fillStyle=base;x.fillRect(0,0,W,H);
+  const mirror=f=>{f();x.save();x.translate(W,0);x.scale(-1,1);f();x.restore();};
+  switch(ch.name){
+    case 'Blaze':mirror(()=>{for(let i=0;i<5;i++){const y=250+i*34,len=260+i*40;x.fillStyle=i%2?'#ff9a1f':acc;x.beginPath();x.moveTo(600,y-30);x.bezierCurveTo(700,y-60,760+len*.3,y+30,600+len,y-10+i*6);x.bezierCurveTo(700+len*.4,y+40,660,y+50,600,y+40);x.fill();}});break;
+    case 'Pip':for(let i=0;i<70;i++){const px=(i*137.5)%W,py=40+((i*61)%360),r=10+(i%4)*6;x.fillStyle=i%3?acc:'#ffffff';x.beginPath();x.arc(px,py,r,0,TAU);x.fill();}break;
+    case 'Luna':mirror(()=>{x.fillStyle=acc;x.beginPath();x.arc(760,180,70,0,TAU);x.fill();x.fillStyle=base;x.beginPath();x.arc(790,160,62,0,TAU);x.fill();x.fillStyle=acc;[[860,300,10],[700,320,7],[900,140,8],[640,110,6]].forEach(([a,b,r])=>{x.beginPath();x.arc(a,b,r,0,TAU);x.fill();});});break;
+    case 'Bolt':x.fillStyle=dark;x.fillRect(0,300,W,70);x.fillStyle=acc;x.beginPath();x.moveTo(0,330);for(let i=0;i<=16;i++)x.lineTo(i*W/16,i%2?305:360);x.lineTo(W,340);for(let i=16;i>=0;i--)x.lineTo(i*W/16,(i%2?305:360)+14);x.fill();break;
+    case 'Coral':for(let b=0;b<4;b++){x.strokeStyle=b%2?'#ffffff':acc;x.lineWidth=16;x.beginPath();for(let i=0;i<=64;i++){const px=i*W/64,py=150+b*55+Math.sin(i/64*TAU*6)*18;i?x.lineTo(px,py):x.moveTo(px,py);}x.stroke();}break;
+    case 'Mossy':for(let i=0;i<26;i++){const px=(i*97)%W,py=60+((i*53)%320),a=(i*1.3)%TAU;x.save();x.translate(px,py);x.rotate(a);x.fillStyle=i%2?acc:'#4e7d2e';x.beginPath();x.ellipse(0,0,34,14,0,0,TAU);x.fill();x.restore();}break;
+    case 'Zed':mirror(()=>{x.fillStyle=acc;for(let i=0;i<4;i++){const cx=620+i*70;x.beginPath();x.moveTo(cx,170);x.lineTo(cx+40,240);x.lineTo(cx,310);x.lineTo(cx+22,310);x.lineTo(cx+62,240);x.lineTo(cx+22,170);x.fill();}});x.strokeStyle=dark;x.lineWidth=5;x.strokeRect(20,120,W-40,260);break;
+    case 'Nova':{const star=(cx,cy,r)=>{x.beginPath();for(let i=0;i<10;i++){const rr=i%2?r*.45:r,a=-Math.PI/2+i*Math.PI/5;x.lineTo(cx+Math.cos(a)*rr,cy+Math.sin(a)*rr);}x.fill();};x.fillStyle=acc;for(let i=0;i<22;i++)star((i*173)%W,50+((i*71)%330),8+(i%3)*10);x.fillStyle='#ffffff';star(512,60,46);break;}
+  }
+  x.fillStyle=acc;x.fillRect(W/2-26,0,52,215);x.fillRect(0,0,26,300);x.fillRect(W-26,0,26,300);   // stripe over the crown, front to back
+  x.fillStyle=dark;x.fillRect(0,H-70,W,70);x.fillStyle=acc;x.fillRect(0,H-78,W,10);}                 // chin band
+function livery(ch){if(liveryCache[ch.name])return liveryCache[ch.name];const num=String(CHARACTERS.indexOf(ch)+1),col=hex(ch.color),acc=hex(ch.accent);
+  const font=s=>'bold '+s+'px Bungee, Impact, sans-serif';
+  return liveryCache[ch.name]={
+    helmet:canvasTex(1024,512,(x,W,H)=>drawHelmet(x,W,H,ch)),
+    panel:canvasTex(512,512,(x,W,H)=>{x.fillStyle=col;x.fillRect(0,0,W,H);x.fillStyle=acc;x.fillRect(0,H-70,W,40);x.fillStyle='#ffd23f';x.beginPath();x.roundRect(86,60,340,300,40);x.fill();
+      x.fillStyle='#111';x.font=font(250);x.textAlign='center';x.textBaseline='middle';x.fillText(num,W/2,222);x.fillStyle='#fff';x.font=font(54);x.fillText(ch.name.toUpperCase(),W/2,H-120);}),
+    pod:canvasTex(1024,256,(x,W,H)=>{x.fillStyle=col;x.fillRect(0,0,W,H);x.fillStyle=acc;x.beginPath();x.moveTo(0,H*.62);x.lineTo(W,H*.5);x.lineTo(W,H*.62);x.lineTo(0,H*.74);x.fill();
+      x.fillStyle='#ffd23f';x.beginPath();x.roundRect(W*.62,30,170,150,24);x.fill();x.fillStyle='#111';x.font=font(130);x.textAlign='center';x.textBaseline='middle';x.fillText(num,W*.62+85,110);
+      x.fillStyle='#fff';x.font=font(64);x.textAlign='left';x.fillText(ch.name.toUpperCase(),W*.14,100);x.font=font(28);x.fillStyle='rgba(255,255,255,.8)';x.fillText('KARTLANDS GP',W*.14,150);})};}
+let tireTex=null;
+function getTireTex(){return tireTex||(tireTex=canvasTex(2048,256,(x,W,H)=>{x.fillStyle='#1b1b1c';x.fillRect(0,0,W,H);x.fillStyle='#141415';x.fillRect(0,0,W,40);
+  x.fillStyle='#9a9a9c';x.font='bold 46px Bungee, Impact, sans-serif';x.textBaseline='middle';['KARTLANDS','SLICK  RACE','10X4.50-5','KARTLANDS','SLICK  RACE','CIK APPROVED'].forEach((t,i)=>x.fillText(t,20+i*W/6,105));
+  x.fillStyle='#2a2a2b';for(let i=0;i<W;i+=16)x.fillRect(i,190,6,24);}));}
+// the realistic kart and driver modelled in Blender. Pivots (wheels, steering column, hips, neck, shoulders) come from the file;
+// the arms are two-bone IK chains solved every frame so the hands stay on the steering wheel.
+const ARM_UPPER=.29*1.9,ARM_FORE=.27*1.9,GRIP_R=.155*1.9;   // match UPPER, FORE and the wheel radius in blender/build_assets.py (x K)
 function buildKartModelGLB(ch){
-  const g=new THREE.Group();g.rotation.order='YXZ';
-  const M=(c,r,m)=>new THREE.MeshStandardMaterial({color:c,roughness:r==null?.5:r,metalness:m||0});
-  const paint=(c,r)=>new THREE.MeshPhysicalMaterial({color:c,roughness:r,metalness:.25,clearcoat:1,clearcoatRoughness:.05});   // clear-coated car paint
-  const mats={Body:paint(ch.color,.4),BodyDark:paint(new THREE.Color(ch.color).multiplyScalar(.62).getHex(),.5),Accent:paint(ch.accent,.4),Dark:M(0x1d1f26,.7),Chrome:M(0xe4e8ee,.12,1),Rubber:M(0x121315,.88),
-    Glass:new THREE.MeshPhysicalMaterial({color:0x1b2a3a,roughness:.08,metalness:.4,clearcoat:1,clearcoatRoughness:.05}),Lamp:new THREE.MeshStandardMaterial({color:0xfff4c2,emissive:0xffe08a,emissiveIntensity:1.2,roughness:.3}),
-    Plate:M(0xf6f1e6,.6),Suit:M(ch.suit,.65),Skin:M(ch.skin,.75),Helmet:M(ch.helmet,.28,.12),Glove:M(0x2a2d36,.8),Eye:M(0xf7f7f2,.35),
-    Glow:new THREE.MeshStandardMaterial({color:ch.accent,emissive:ch.accent,emissiveIntensity:.7,roughness:.4})};
+  const g=new THREE.Group();g.rotation.order='YXZ';const P=Assets.pivots,L=livery(ch);
+  const M=(c,r,m)=>new THREE.MeshStandardMaterial({color:c,roughness:r,metalness:m||0});
+  const gloss=(c,r,map)=>new THREE.MeshPhysicalMaterial({color:c,map:map||null,roughness:r,metalness:0,clearcoat:.9,clearcoatRoughness:.06});
+  const mats={Paint:gloss(ch.color,.3),Pod:gloss(0xffffff,.3,L.pod),Panel:gloss(0xffffff,.35,L.panel),PaintDark:M(0x16171a,.45),Trim:gloss(ch.accent,.32),
+    Frame:M(0xd0d4da,.16,1),Alu:M(0xaeb2b8,.34,.9),Exhaust:M(0x77787c,.4,.9),Brake:M(0x8d9096,.28,.9),Seat:gloss(0x1c1d21,.25),Tank:M(0xe8e6df,.4),
+    Rim:M(new THREE.Color(ch.accent).lerp(new THREE.Color(0xc0c4ca),.55).getHex(),.26,.9),Tire:M(0xffffff,.8),Grip:M(0x17181b,.9),Dark:M(0x1d1f26,.7),
+    Suit:M(ch.suit,.72),SuitAccent:M(ch.accent,.66),Glove:M(0x222428,.75),Boot:M(0x1a1a1d,.5),Collar:M(0x202226,.9),
+    Helmet:new THREE.MeshPhysicalMaterial({map:L.helmet,roughness:.22,clearcoat:1,clearcoatRoughness:.03}),
+    Visor:new THREE.MeshPhysicalMaterial({color:0x0c1116,roughness:.04,metalness:.75,clearcoat:1,clearcoatRoughness:.02})};
+  mats.Tire.map=getTireTex();
   const part=(name,parent,shadow)=>{const p=assetPart(name,mats,shadow);(parent||g).add(p);return p;};
+  const at=(o,name)=>{o.position.copy(P[name].p);o.quaternion.copy(P[name].q);return o;};
   part('kart_body');
-  const wheelCtl=new THREE.Group();wheelCtl.position.set(0,1.22,.28);wheelCtl.rotation.x=-.9;g.add(wheelCtl);part('kart_steer',wheelCtl);
+  const wheelCtl=at(new THREE.Group(),'pivot_steer');g.add(wheelCtl);part('kart_steer',wheelCtl);
   const wheels=[],front=[];
-  [[-1.15,1.05],[1.15,1.05],[-1.15,-1.05],[1.15,-1.05]].forEach(([x,z],i)=>{const piv=new THREE.Group();piv.position.set(x,.5,z);piv.rotation.order='YXZ';
-    const w=part('kart_wheel',piv);if(x<0)w.scale.x=-1;g.add(piv);wheels.push(piv);if(i<2)front.push(piv);});   // hubcaps face outward on both sides
-  const driver=new THREE.Group();driver.position.set(0,.86,-.5);g.add(driver);part('driver_body',driver);
-  const head=new THREE.Group();head.position.set(0,1.02,0);driver.add(head);part('driver_head',head);part('topper_'+ch.name.toLowerCase(),head);
-  const arms=[-1,1].map(sg=>{const piv=new THREE.Group();piv.position.set(sg*.36,.74,.08);driver.add(piv);
-    const m=part('driver_arm',piv);m.rotation.x=Math.PI/2;m.position.z=.5;const hand=part('driver_glove',piv,false);hand.position.z=1;return {piv,m,hand,sg};});
-  return {g,wheels,front,...kartEffects(g),driver,head,wheelCtl,arms};
+  ['front_L','front_R','rear_L','rear_R'].forEach(n=>{const piv=new THREE.Group();piv.position.copy(P['pivot_wheel_'+n].p);piv.rotation.order='YXZ';part('kart_wheel_'+n,piv);g.add(piv);wheels.push(piv);if(n[0]==='f')front.push(piv);});
+  const driver=new THREE.Group();driver.position.copy(P.pivot_driver.p);g.add(driver);part('driver_body',driver);
+  const head=new THREE.Group();head.position.copy(P.pivot_head.p).sub(P.pivot_driver.p);driver.add(head);part('driver_head',head);
+  const arms=[-1,1].map(sg=>{const sh=new THREE.Object3D();sh.position.copy(P['pivot_shoulder_'+(sg>0?'R':'L')].p).sub(P.pivot_driver.p);driver.add(sh);
+    return {sh,up:part('driver_upperarm'),fo:part('driver_forearm'),hand:part('driver_glove',g,false),sg};});
+  const fx=kartEffects(g);fx.flame.position.set(.99,.61,-1.95);fx.flame2.position.set(.99,.61,-1.75);fx.flame.scale.setScalar(.45);fx.flame2.scale.setScalar(.45);fx.shield.scale.setScalar(.85);
+  return {g,wheels,front,...fx,driver,head,wheelCtl,arms,ik:true,wheelR:P.pivot_wheel_rear_R.p.y};
 }
 function buildKartModel(ch){
   if(Assets.ready)return buildKartModelGLB(ch);
@@ -965,7 +1003,7 @@ function kartVisuals(k,dt){const S=track.samples,N=track.N;
   k.spinAng=k.spin>0?k.spinAng+dt*12:0;
   g.rotation.set(pitch,k.heading+(k.drift?k.driftDir*0.5:0)+k.spinAng,k.drift?-k.driftDir*0.08:0);
   const targetScale=k.shrink>0?0.6:1;g.scale.setScalar(lerp(g.scale.x,targetScale,1-Math.exp(-8*dt)));
-  k.wheelSpin+=k.speed*dt/0.5;k.model.wheels.forEach(w=>{w.rotation.x=k.wheelSpin;});k.model.front.forEach(w=>{w.rotation.y=k.steerVis*0.45;});animateDriver(k);
+  k.wheelSpin+=k.speed*dt/(k.model.wheelR||0.5);k.model.wheels.forEach(w=>{w.rotation.x=k.wheelSpin;});k.model.front.forEach(w=>{w.rotation.y=k.steerVis*0.45;});animateDriver(k);
   k.model.flame.visible=k.model.flame2.visible=k.boost>0;if(k.boost>0){const fs=.7+Math.random()*.6;k.model.flame.scale.set(fs,1+Math.random()*.6,fs);}
   k.model.shield.visible=k.shield>0;if(k.shield>0){k.model.shield.rotation.y+=dt*2;k.model.shield.material.opacity=k.shield<2?.28*(0.5+0.5*Math.sin(k.shield*20)):.28;}
   // particles
@@ -975,8 +1013,17 @@ function kartVisuals(k,dt){const S=track.samples,N=track.N;
   if(k.offroad&&Math.abs(k.speed)>8&&Math.random()<.7){const back=k.pos.clone().addScaledVector(_f,-1.5);back.y+=.2;spawnP(back,new THREE.Vector3(rand(-2,2),rand(1,3),rand(-2,2)),track.def.ground2,.8,1.5);}
   if(k.boost>0){const back=k.pos.clone().addScaledVector(_f,-2.6);back.y+=.8;spawnP(back,new THREE.Vector3(rand(-1,1)-_f.x*10,rand(0,2),rand(-1,1)-_f.z*10),Math.random()<.5?0xff8a1f:0xffe066,.3,.9);}
 }
-const _hand=new THREE.Vector3(),_sh=new THREE.Vector3();
-function animateDriver(k){const md=k.model;if(!md.driver)return;const lean=k.drift?k.driftDir*0.14:0;md.driver.rotation.z=-k.steerVis*0.16-lean;md.driver.rotation.x=k.boost>0?-.08:0;md.head.rotation.y=k.steerVis*0.35+(k.drift?k.driftDir*0.35:0);md.wheelCtl.rotation.y=k.steerVis*0.9;
+const _hand=new THREE.Vector3(),_sh=new THREE.Vector3(),_elb=new THREE.Vector3(),_dir=new THREE.Vector3(),_bend=new THREE.Vector3(),_tip=new THREE.Vector3();
+// two-bone arm IK: shoulder -> elbow -> hand on the steering wheel grip, elbows bending outward and down
+function solveArms(k){const md=k.model,s=md.g.scale.x,A=ARM_UPPER*s,B=ARM_FORE*s;md.wheelCtl.updateWorldMatrix(true,false);md.driver.updateWorldMatrix(true,true);
+  for(const a of md.arms){a.sh.getWorldPosition(_sh);_hand.set(a.sg*GRIP_R,0,0);md.wheelCtl.localToWorld(_hand);
+    _dir.subVectors(_hand,_sh);const L=Math.max(.01,Math.min(_dir.length(),A+B-1e-3));_dir.normalize();
+    _bend.set(a.sg*.7,-1,0).applyQuaternion(md.g.quaternion);_bend.addScaledVector(_dir,-_bend.dot(_dir)).normalize();
+    const along=(A*A-B*B+L*L)/(2*L);_elb.copy(_sh).addScaledVector(_dir,along).addScaledVector(_bend,Math.sqrt(Math.max(A*A-along*along,0)));
+    _hand.copy(_sh).addScaledVector(_dir,L);
+    for(const [o,from,to] of [[a.up,_sh,_elb],[a.fo,_elb,_hand]]){o.position.copy(from);md.g.worldToLocal(o.position);o.lookAt(to);}
+    a.hand.position.copy(_hand);md.g.worldToLocal(a.hand.position);_tip.subVectors(_hand,_elb).add(_hand);a.hand.lookAt(_tip);}}
+function animateDriver(k){const md=k.model;if(!md.driver)return;const lean=k.drift?k.driftDir*0.14:0;md.driver.rotation.z=-k.steerVis*0.16-lean;md.driver.rotation.x=k.boost>0?-.08:0;md.head.rotation.y=k.steerVis*0.35+(k.drift?k.driftDir*0.35:0);md.wheelCtl.rotation.y=k.steerVis*0.9;if(md.ik){solveArms(k);return;}
   md.wheelCtl.updateWorldMatrix(true,false);for(const a of md.arms){_hand.set(a.sg*.28,0,0);md.wheelCtl.localToWorld(_hand);a.piv.updateWorldMatrix(true,false);a.piv.getWorldPosition(_sh);const d=Math.max(.3,_sh.distanceTo(_hand)/k.model.g.scale.x);a.piv.lookAt(_hand);a.m.scale.y=d;a.m.position.z=d/2;a.hand.position.z=d;}}
 function resetKart(k){if(!Number.isInteger(k.idx)||k.idx<0||k.idx>=track.N)k.idx=0;const s=track.samples[k.idx];k.pos.copy(s.p);k.heading=Math.atan2(s.t.x,s.t.z);k.speed=0;k.drift=false;k.spin=0;k.lastIdx=k.idx;}
 function sane(k){if(!isFinite(k.pos.x)||!isFinite(k.pos.z)||!isFinite(k.heading)||!isFinite(k.speed)||!Number.isInteger(k.idx))resetKart(k);}
@@ -1063,9 +1110,10 @@ function updateStandings(){const N=track.N;const arr=G.karts.slice().sort((a,b)=
   arr.forEach((k,i)=>k.rank=i+1);G.standings=arr;}
 const _cp=new THREE.Vector3();
 function updateCamera(v,dt,snap){const k=v.kart,cam=v.cam;_f.set(Math.sin(k.heading),0,Math.cos(k.heading));
-  const back=8.5-Math.min(k.speed,90)*0.02+(k.boost>0?1.2:0);_cp.copy(k.pos).addScaledVector(_f,-back);_cp.y+=3.6;
+  const cz=k.model.ik?.74:1;   // the realistic kart is smaller than the built-in one, so the chase camera sits closer
+  const back=(8.5-Math.min(k.speed,90)*0.02+(k.boost>0?1.2:0))*cz;_cp.copy(k.pos).addScaledVector(_f,-back);_cp.y+=3.6*cz;
   const a=snap?1:1-Math.exp(-6*dt);v.camPos.lerp(_cp,a);
-  _t.copy(k.pos).addScaledVector(_f,5);_t.y+=1.4;v.camLook.lerp(_t,snap?1:1-Math.exp(-10*dt));
+  _t.copy(k.pos).addScaledVector(_f,5);_t.y+=1.4*cz;v.camLook.lerp(_t,snap?1:1-Math.exp(-10*dt));
   if(v.shake>0){v.shake=Math.max(0,v.shake-dt*2);const s=v.shake*.5;v.camPos.x+=rand(-s,s);v.camPos.y+=rand(-s,s);}
   cam.position.copy(v.camPos);cam.lookAt(v.camLook);const fovT=70+(k.boost>0?14:0)+Math.min(k.speed,90)*0.08+(G.views.length>1&&G.splitDir==='v'?10:0);cam.fov=lerp(cam.fov,fovT,1-Math.exp(-5*dt));cam.updateProjectionMatrix();}
 function showMsg(v,t,sub,dur){const m=v.hud.el.msg,s=v.hud.el.sub;m.textContent=t;m.classList.toggle('show',!!t);s.textContent=sub||'';s.classList.toggle('show',!!sub);v.msgTimed=!!dur;v.msgT=dur||0;}

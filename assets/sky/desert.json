@@ -1,0 +1,21 @@
+{
+ "hdri": "syferfontein_18d_clear_puresky",
+ "sun": [
+  0.7691,
+  0.3149,
+  0.5561
+ ],
+ "sunColor": [
+  1.0,
+  0.869,
+  0.5381
+ ],
+ "horizon": [
+  0.51632,
+  0.60375,
+  0.61223
+ ],
+ "envMean": 0.88834,
+ "bgScale": 0.53134,
+ "bgBelow": 0.10472
+}

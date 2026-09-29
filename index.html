@@ -428,6 +428,16 @@ const skyMat=new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,unif
   fragmentShader:'uniform vec3 top;uniform vec3 bot;varying vec3 vP;void main(){float h=normalize(vP).y;float t=smoothstep(-0.05,0.5,h);gl_FragColor=vec4(mix(bot,top,t),1.0);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}'});
 const gradientSky=new THREE.Mesh(new THREE.SphereGeometry(800,24,12),skyMat);sky.add(gradientSky);
 const daySky=new Sky();daySky.scale.setScalar(900);sky.add(daySky);
+const photoSkyMat=new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,uniforms:{tSky:{value:null},uGain:{value:1},uBelow:{value:.1},uFog:{value:new THREE.Color()}},
+  vertexShader:'varying vec3 vDir;void main(){vDir=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+  // same equirectangular mapping three.js uses for environment maps, so the sky and its reflections line up
+  fragmentShader:`uniform sampler2D tSky;uniform float uGain;uniform float uBelow;uniform vec3 uFog;varying vec3 vDir;
+    void main(){vec3 d=normalize(vDir);float el=asin(clamp(d.y,-1.0,1.0));vec2 uv=vec2(atan(d.z,d.x)*0.15915494+0.5,clamp((el+uBelow)/(1.5707963+uBelow),0.002,0.998));
+      vec3 c=texture2D(tSky,uv).rgb*uGain;c=mix(uFog,c,smoothstep(-0.03,0.015,el));gl_FragColor=vec4(c,1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`});
+const photoSky=new THREE.Mesh(new THREE.SphereGeometry(800,64,32),photoSkyMat);photoSky.visible=false;sky.add(photoSky);
 {const m=daySky.material;Object.assign(m.uniforms,{uGain:{value:1},uTime:{value:0},uClouds:{value:.4},uCloudColor:{value:new THREE.Color(1,1,1)},uHorizon:{value:new THREE.Color(0xdfe8f0)}});
   m.fragmentShader=m.fragmentShader.replace('void main() {',`uniform float uGain;uniform float uTime;uniform float uClouds;uniform vec3 uCloudColor;uniform vec3 uHorizon;
     float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
@@ -494,27 +504,33 @@ const roadTex=makeRoadTex(),curbTex=makeCurbTex(),checkerTex=makeCheckerTex();
 // Textures come from blender/build_textures.py and HDRIs from Poly Haven (CC0, via @pmndrs/assets). Browsers refuse to
 // hand local files to WebGL, so a page opened straight from disk keeps the simple canvas textures and gradient sky.
 const RICH=location.protocol!=='file:';
+// photo: a Poly Haven sky in assets/sky (lighting, visible sky, sun direction and colour); sky: the procedural daylight sky
+// shown until the photo loads; bg:false keeps the world's stylised gradient sky but still lights it from the photo
 const LOOKS={
-  sunny:{ground:'grass',hdri:'park',sky:{t:2.5,r:1.2,clouds:.42}},
-  desert:{ground:'sand',groundTint:0xe6ddd0,hdri:'dawn',env:.3,sky:{t:5,r:1.6,clouds:.12},sun:[75,70,30]},
-  frost:{ground:'snow',hdri:'sky',env:.6,sky:{t:2,r:.9,clouds:.55},exposure:.8},
-  harbor:{ground:'pavers',hdri:'night',env:.6,roadRough:.4},
-  lava:{ground:'basalt',hdri:'sunset',env:.5},
-  cove:{ground:'beach',groundTint:0xd2c7ae,hdri:'venice',env:.35,sky:{t:3,r:1.4,clouds:.3}},
-  canyon:{ground:'dirt',hdri:'dawn',env:.3,sky:{t:4.5,r:1.8,clouds:.18},sun:[80,60,20]},
+  sunny:{ground:'grass',groundTint:0xa9dc8c,photo:'sunny',sky:{t:2.5,r:1.2,clouds:.42}},
+  desert:{ground:'sand',groundTint:0xfbe6c4,groundMatte:true,photo:'desert',sky:{t:5,r:1.6,clouds:.12}},
+  frost:{ground:'snow',photo:'frost',sky:{t:2,r:.9,clouds:.55},exposure:.85},
+  harbor:{ground:'pavers',photo:'harbor',roadRough:.4,moon:true,env:.5},
+  lava:{ground:'basalt',photo:'lava',env:.6},
+  cove:{ground:'beach',photo:'cove',sky:{t:3,r:1.4,clouds:.3}},
+  canyon:{ground:'dirt',photo:'canyon',sky:{t:4.5,r:1.8,clouds:.18}},
   planetoid:{hdri:'night',env:.4},
   prism:{hdri:'night',env:.4},
-  lagoon:{ground:'beach',groundTint:0xd2c7ae,hdri:'venice',env:.35,sky:{t:3,r:1.3,clouds:.45}},
-  ashfall:{ground:'basalt',hdri:'sunset',env:.45},
-  portals:{ground:'grass',groundTint:0xc4d6c8,hdri:'park',sky:{t:2.2,r:1,clouds:.3}},
+  lagoon:{ground:'beach',photo:'lagoon',sky:{t:3,r:1.3,clouds:.45}},
+  ashfall:{ground:'basalt',photo:'ashfall',env:.5},
+  portals:{ground:'grass',groundTint:0xb8dcc0,photo:'portals',sky:{t:2.2,r:1,clouds:.3}},
 };
-const TEX_TILE={asphalt:5,grass:3.5,sand:5,beach:4,dirt:5,snow:6,basalt:5,pavers:4};   // metres per texture repeat
+// world units per texture repeat: Poly Haven's real-world size (tiles.json) x 1.9, the game's scale; basalt doubled to hide repeats
+const TEX_TILE={asphalt:3.8,grass:3.8,sand:57,beach:28.5,dirt:3.8,snow:3.8,basalt:3.8,pavers:3.65,rock:4.5,cliff:3.5,darkrock:4.6,water:16};
+// scale each photo texture's albedo toward real-world values (fresh race asphalt ~0.08, snow ~0.75, dry sand ~0.38)
+const TEX_GAIN={asphalt:5,snow:2,sand:1.6,beach:2,dirt:2.2,basalt:.7,darkrock:3.5,rock:1.4,cliff:1.3,bark:1.3,palmbark:1.6};
 const texLoader=new THREE.TextureLoader(),texCache={};
 function pbrSet(name){if(texCache[name])return texCache[name];
   const load=(suf,srgb)=>{const t=texLoader.load('assets/textures/'+name+'_'+suf+'.jpg');t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=MAX_ANISO;if(srgb)t.colorSpace=THREE.SRGBColorSpace;t.userData.keep=true;return t;};
   return texCache[name]={map:load('c',true),normalMap:load('n'),orm:load('r'),tile:TEX_TILE[name]||4};}
 function pbrMaterial(name,extra){const P=pbrSet(name);const {roadW,...opts}=extra||{};
   const m=new THREE.MeshStandardMaterial(Object.assign({map:P.map,normalMap:P.normalMap,roughnessMap:P.orm,aoMap:P.orm,aoMapIntensity:.8,roughness:1,metalness:0},opts));
+  m.color.multiplyScalar(TEX_GAIN[name]||1);
   worldUV(m,P.tile,roadW);return m;}
 // sample textures in world space (metres) so ribbons and the ground plane line up seamlessly; break up visible tiling by blending
 // a second, rotated scale and a blurred large-scale sample; on roads also paint edge lines and a darker rubbered racing line
@@ -560,10 +576,10 @@ function frondNormals(geo){if(geo.userData.foliage)return geo;geo.userData.folia
 function upNormals(geo){if(geo.userData.foliage)return geo;geo.userData.foliage=true;const n=geo.attributes.normal;for(let i=0;i<n.count;i++)n.setXYZ(i,0,1,0);n.needsUpdate=true;return geo;}
 function foliageMat(name,tint,mix){const m=new THREE.MeshStandardMaterial({map:rgbaTex(name),alphaTest:.3,alphaToCoverage:true,side:THREE.DoubleSide,roughness:.8,color:new THREE.Color(0xffffff).lerp(new THREE.Color(tint),mix==null?.3:mix)});
   m.onBeforeCompile=sh=>{sh.fragmentShader=sh.fragmentShader.replace('#include <normal_fragment_begin>',THREE.ShaderChunk.normal_fragment_begin.replace('normal *= faceDirection;',''));};m.customProgramCacheKey=()=>'foliage';return m;}   // both sides share the canopy normal
-function barkMat(tint,gain){const P=pbrSet('bark');return new THREE.MeshStandardMaterial({map:P.map,normalMap:P.normalMap,roughness:.95,color:new THREE.Color(0xffffff).lerp(new THREE.Color(tint||0x6b4a2b),.3).multiplyScalar(gain||1.8)});}
+function barkMat(name,tint){const P=pbrSet(name);return new THREE.MeshStandardMaterial({map:P.map,normalMap:P.normalMap,roughnessMap:P.orm,roughness:1,color:new THREE.Color(0xffffff).lerp(new THREE.Color(tint||0xffffff),.15).multiplyScalar(TEX_GAIN[name]||1)});}
 // rock surfaces sample their texture from three world-space planes blended by the normal, so no UVs are needed
-function triplanarMat(name,tile,tint){const P=pbrSet(name);const c=new THREE.Color(tint||0xffffff),mx=Math.max(c.r,c.g,c.b,1e-3);
-  const m=new THREE.MeshStandardMaterial({map:P.map,roughnessMap:P.orm,roughness:1,flatShading:true,color:c.multiplyScalar(1/mx)});
+function triplanarMat(name,tile,tint,smooth){const P=pbrSet(name);const c=new THREE.Color(tint||0xffffff),mx=Math.max(c.r,c.g,c.b,1e-3);
+  const m=new THREE.MeshStandardMaterial({map:P.map,roughnessMap:P.orm,roughness:1,flatShading:!smooth,color:c.multiplyScalar((TEX_GAIN[name]||1)/mx)});
   m.onBeforeCompile=sh=>{sh.uniforms.uTri={value:1/tile};
     sh.vertexShader=sh.vertexShader.replace('void main() {','varying vec3 vTriP;varying vec3 vTriN;\nvoid main() {').replace('#include <worldpos_vertex>',`#include <worldpos_vertex>
       vec4 triP=vec4(transformed,1.0);vec3 triN=objectNormal;
@@ -576,8 +592,9 @@ function triplanarMat(name,tile,tint){const P=pbrSet(name);const c=new THREE.Col
       void main() {`).replace('#include <map_fragment>','diffuseColor*=tri(map);').replace('#include <roughnessmap_fragment>','float roughnessFactor=roughness*tri(roughnessMap).g;');};
   m.customProgramCacheKey=()=>'triplanar';return m;}
 // what each world's rocks are made of
-const ROCK_LOOK={desert:['cliff',8,0xffffff],canyon:['cliff',8,0xffffff],lava:['basalt',4],ashfall:['basalt',4],harbor:['rock',3]};
-function rockMat(def){const [n,t,tint]=ROCK_LOOK[def.id]||['rock',3];return triplanarMat(n,t,tint||def.rock);}
+const ROCK_LOOK={desert:['cliff',5],canyon:['cliff',5],lava:['darkrock',5],ashfall:['darkrock',5],planetoid:['darkrock',6],prism:['darkrock',6]};
+function rockMat(def,smooth){const [n,t]=ROCK_LOOK[def.id]||['rock',4.5];return triplanarMat(n,t,0xffffff,smooth);}
+function boulderMat(){const P=pbrSet('boulder');return new THREE.MeshStandardMaterial({map:P.map,normalMap:P.normalMap,roughnessMap:P.orm,aoMap:P.orm,roughness:1});}
 const waterMats=[];
 function waterMat(){const P=pbrSet('water');const m=new THREE.MeshPhysicalMaterial({color:0x0b4a60,roughness:.04,metalness:0,normalMap:P.normalMap,normalScale:new THREE.Vector2(.55,.55),envMapIntensity:1.2});
   worldUV(m,16);const base=m.onBeforeCompile;m.onBeforeCompile=sh=>{base(sh);sh.uniforms.uScroll={value:new THREE.Vector2()};m.userData.sh=sh;
@@ -586,15 +603,29 @@ function waterMat(){const P=pbrSet('water');const m=new THREE.MeshPhysicalMateri
 function animateWater(t){for(const m of waterMats)if(m.userData.sh)m.userData.sh.uniforms.uScroll.value.set(t*.011,t*.007);}
 const pmrem=new THREE.PMREMGenerator(renderer),exrLoader=new EXRLoader().setDataType(THREE.FloatType),envCache={};
 // HDRI -> prefiltered environment map; `gain` scales the image so each world's ambient light sits right against the sun
-function loadEnv(name,gain){const key=name+'@'+gain;if(!envCache[key])envCache[key]=new Promise(res=>exrLoader.load('assets/hdri/'+name+'.exr',t=>{
+function loadEnv(path,gain){const key=path+'@'+gain;if(!envCache[key])envCache[key]=new Promise(res=>exrLoader.load(path,t=>{
     const d=t.image.data;for(let i=0;i<d.length;i++)d[i]=Math.min(d[i]*gain,16*gain);t.mapping=THREE.EquirectangularReflectionMapping;t.needsUpdate=true;
     const rt=pmrem.fromEquirectangular(t);t.dispose();res(rt.texture);},undefined,()=>res(null)));return envCache[key];}
-function applyLook(def){const L=LOOKS[def.id]||{};SUN_OFFSET.fromArray(L.sun||[60,110,40]);
-  const day=RICH&&!!L.sky;daySky.visible=day;gradientSky.visible=!day;
+// a photographed sky: its manifest (sun, horizon colour, exposure) plus the background image, fetched once per world
+const skyCache={},ENV_TARGET=.2;   // HDRIs are scaled so their mean radiance is ENV_TARGET, matching the sun's intensity
+function loadSky(id){if(!skyCache[id])skyCache[id]=fetch('assets/sky/'+id+'.json').then(r=>r.ok?r.json():null).then(meta=>{if(!meta)return null;
+    const bg=meta.bgScale?new Promise(res=>texLoader.load('assets/sky/'+id+'_bg.jpg',t=>{t.colorSpace=THREE.SRGBColorSpace;t.generateMipmaps=false;t.minFilter=THREE.LinearFilter;res(t);},undefined,()=>res(null))):Promise.resolve(null);
+    return {meta,bg};}).catch(()=>null);return skyCache[id];}
+function applyLook(def){const L=LOOKS[def.id]||{};SUN_OFFSET.set(60,110,40);
+  const day=RICH&&!!L.sky;daySky.visible=day;gradientSky.visible=!day;photoSky.visible=false;
   if(day){const u=daySky.material.uniforms;u.turbidity.value=L.sky.t;u.rayleigh.value=L.sky.r;u.mieCoefficient.value=.004;u.mieDirectionalG.value=.82;
     u.sunPosition.value.copy(SUN_OFFSET).normalize();u.uClouds.value=L.sky.clouds;u.uHorizon.value.set(def.fog);u.uGain.value=L.sky.gain||.3;scene.fog.near*=1.5;scene.fog.far=Math.min(880,scene.fog.far*1.6);u.uCloudColor.value.set(L.sky.cloud||0xf4f6fa);}
-  renderer.toneMappingExposure=L.exposure||.9;scene.environment=null;
-  if(RICH&&L.hdri){hemi.intensity*=.3;loadEnv(L.hdri,L.env||1).then(t=>{if(track&&track.def===def)scene.environment=t;});}}
+  renderer.toneMappingExposure=L.exposure||1;scene.environment=null;
+  if(!RICH)return;hemi.intensity*=.3;const current=()=>track&&track.def===def;
+  if(L.hdri)loadEnv('assets/hdri/'+L.hdri+'.exr',L.env||1).then(t=>{if(current())scene.environment=t;});
+  if(L.photo)loadSky(L.photo).then(sk=>{if(!sk||!current())return;const m=sk.meta,g=ENV_TARGET/m.envMean*(L.env||1);
+    loadEnv('assets/sky/'+L.photo+'_env.exr',g).then(t=>{if(current())scene.environment=t;});
+    if(!L.moon){// turn the sun to where it is in the photo, but keep it at least ~20 degrees up so shadows stay readable
+      const d=new THREE.Vector3().fromArray(m.sun),el=Math.max(Math.asin(d.y),.36),h=Math.hypot(d.x,d.z)||1;
+      SUN_OFFSET.set(d.x/h*Math.cos(el),Math.sin(el),d.z/h*Math.cos(el)).multiplyScalar(130);sun.color.setRGB(m.sunColor[0],m.sunColor[1],m.sunColor[2]);}
+    const fog=new THREE.Color(m.horizon[0]*g,m.horizon[1]*g,m.horizon[2]*g);
+    sk.bg.then(t=>{if(!t||!current())return;const u=photoSkyMat.uniforms;u.tSky.value=t;u.uGain.value=g/m.bgScale*(L.skyGain||1);u.uBelow.value=m.bgBelow;u.uFog.value.copy(fog);
+      scene.fog.color.copy(fog);photoSky.visible=true;daySky.visible=false;gradientSky.visible=false;});});}
 
 // ============================================================ track
 let track=null;
@@ -621,7 +652,7 @@ function buildTrack(def){
   if(def.noGround){const gmat=new THREE.MeshStandardMaterial({color:def.ground,roughness:.6,metalness:.2,transparent:true,opacity:.9});
     const sh=new THREE.Mesh(buildRibbon(samples,-hw-OFFROAD_W-1.5,hw+OFFROAD_W+1.5,-.05,-.05,segLen,6),gmat);sh.receiveShadow=true;group.add(sh);
     const under=new THREE.Mesh(buildRibbon(samples,-hw-OFFROAD_W-1.5,hw+OFFROAD_W+1.5,-1.6,-1.6,segLen,6),new THREE.MeshStandardMaterial({color:def.ground2,roughness:.7,side:THREE.DoubleSide}));group.add(under);}
-  else{const look=LOOKS[def.id]||{};const gmat=RICH&&look.ground?pbrMaterial(look.ground,{color:look.groundTint||0xffffff}):new THREE.MeshStandardMaterial({map:makeGroundTex(def.ground,def.ground2),roughness:1});
+  else{const look=LOOKS[def.id]||{};const gmat=RICH&&look.ground?pbrMaterial(look.ground,Object.assign({color:look.groundTint||0xffffff},look.groundMatte?{roughnessMap:null,roughness:.95}:{})):new THREE.MeshStandardMaterial({map:makeGroundTex(def.ground,def.ground2),roughness:1});
     const sh=new THREE.Mesh(buildRibbon(samples,-hw-OFFROAD_W-4,hw+OFFROAD_W+4,0,0,segLen,6),gmat);sh.receiveShadow=true;group.add(sh);
     const skL=new THREE.Mesh(buildRibbon(samples,-hw-OFFROAD_W-30,-hw-OFFROAD_W-4,-1.5,0,segLen,6),gmat);group.add(skL);
     const skR=new THREE.Mesh(buildRibbon(samples,hw+OFFROAD_W+4,hw+OFFROAD_W+30,0,-1.5,segLen,6),gmat);group.add(skR);
@@ -673,12 +704,12 @@ function buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N){
   const type=def.scenery||'trees';
   if(type==='trees'){
     const rich=RICH_SCENERY();
-    const trunks=inst(assetGeo('tree_trunk',()=>new THREE.CylinderGeometry(.35,.5,3,12)),rich?barkMat(def.trunk):M(def.trunk),420);
+    const trunks=inst(assetGeo('tree_trunk',()=>new THREE.CylinderGeometry(.35,.5,3,12)),rich?barkMat('bark',def.trunk):M(def.trunk),420);
     const leaves=inst(rich?foliageNormals(assetGeo('tree_leaves'),-.5,.8):new THREE.ConeGeometry(2.4,6,12),rich?foliageMat('pine_branch',def.tree):M(def.tree,.9),420);
     const n=place(420,hw+OFFROAD_W+7,80,(x,y,z,i)=>{const s=0.8+rng()*1.1;const a=rng()*TAU;set(trunks,i,x,y+1.5*s-0.3,z,[s,s,s],a);set(leaves,i,x,y+5.5*s-0.3,z,[s,s,s],a);});trunks.count=leaves.count=n;}
   else if(type==='palms'){
     const rich=RICH_SCENERY();
-    const trunks=inst(assetGeo('palm_trunk',()=>new THREE.CylinderGeometry(.2,.42,7,10)),rich?barkMat(0xb0a898,3.2):M(def.trunk),240);
+    const trunks=inst(assetGeo('palm_trunk',()=>new THREE.CylinderGeometry(.2,.42,7,10)),rich?barkMat('palmbark'):M(def.trunk),240);
     const fronds=inst(rich?frondNormals(assetGeo('palm_frond')):new THREE.ConeGeometry(.6,4.4,5),rich?foliageMat('palm_leaf',def.tree,.2):M(def.tree,.8),240*6);
     const tilt=new THREE.Quaternion(),fq=new THREE.Quaternion(),ry=new THREE.Quaternion(),rx=new THREE.Quaternion().setFromEuler(new THREE.Euler(1.75,0,0)),top=new THREE.Vector3();
     const n=place(240,hw+OFFROAD_W+6,90,(x,y,z,i)=>{const s=.7+rng()*.8;const lean=rng()*.3,dir=rng()*TAU;tilt.setFromEuler(new THREE.Euler(Math.sin(dir)*lean,0,Math.cos(dir)*lean));
@@ -693,7 +724,7 @@ function buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N){
     const n=place(150,hw+OFFROAD_W+5,80,(x,y,z,i)=>{const s=.6+rng()*.9;set(bodies,i,x,y+1.9*s,z,[s,s,s],rng()*TAU);const a=rng()*TAU;
       [-1,1].forEach((sg,j)=>{v.set(x+Math.cos(a)*sg*.8*s,y+2.1*s+rng()*.7*s,z-Math.sin(a)*sg*.8*s);sc.set(s,s,s);q.setFromEuler(new THREE.Euler(0,a,sg*1.15));m.compose(v,q,sc);arms.setMatrixAt(i*2+j,m);});});
     bodies.count=n;arms.count=n*2;
-    const mesas=inst(new THREE.CylinderGeometry(1,1.35,1,9,4),RICH_SCENERY()?triplanarMat('cliff',26,0xffffff):M(def.rock,1,0,true),70);const n2=place(70,hw+OFFROAD_W+26,150,(x,y,z,i)=>{const r=6+rng()*16,h=8+rng()*26;set(mesas,i,x,y+h/2-1.5,z,[r,h,r*(.55+rng()*.7)],rng()*TAU);});mesas.count=n2;}
+    const mesas=inst(new THREE.CylinderGeometry(1,1.35,1,9,4),RICH_SCENERY()?triplanarMat('cliff',12,0xffffff):M(def.rock,1,0,true),70);const n2=place(70,hw+OFFROAD_W+26,150,(x,y,z,i)=>{const r=6+rng()*16,h=8+rng()*26;set(mesas,i,x,y+h/2-1.5,z,[r,h,r*(.55+rng()*.7)],rng()*TAU);});mesas.count=n2;}
   else if(type==='city'){
     const winTex=makeWindowTex();const bMat=new THREE.MeshStandardMaterial({color:0x3a4356,roughness:.7,map:winTex,emissive:0xffffff,emissiveMap:winTex,emissiveIntensity:.9});
     const b=inst(new THREE.BoxGeometry(1,1,1),bMat,240);const n=place(240,hw+OFFROAD_W+11,130,(x,y,z,i)=>{const w=6+rng()*11,d=6+rng()*11,h=8+rng()*44;set(b,i,x,y+h/2-1.4,z,[w,h,d],Math.round(rng()*4)*Math.PI/2+rng()*.08);});b.count=n;
@@ -708,7 +739,7 @@ function buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N){
     const planetCols=[0xff9a4a,0x6fb1ff,0xd94fa0,0xffe07a,0x8fe0c8,0xb07cff];
     for(let i=0;i<6;i++){const a=rng()*TAU,dist=380+rng()*220,r=18+rng()*40;const pm=new THREE.Mesh(new THREE.SphereGeometry(r,28,20),M(planetCols[i%planetCols.length],.8));pm.position.set(cx+Math.cos(a)*dist,-120+rng()*260,cz+Math.sin(a)*dist);group.add(pm);
       if(i===1){const ring=new THREE.Mesh(new THREE.TorusGeometry(r*1.7,r*.12,8,48),M(0xe8dcc0,.7));ring.position.copy(pm.position);ring.rotation.x=Math.PI/2.4;group.add(ring);}}
-    const roids=inst(assetGeo('rock',()=>new THREE.DodecahedronGeometry(1,0)),RICH_SCENERY()?triplanarMat('rock',4,0x8a8790):M(0x6d6a75,1,0,true),140);const q2=new THREE.Quaternion();const n=place(140,hw+OFFROAD_W+14,120,(x,y,z,i)=>{const sz=1.5+rng()*5;v.set(x,-40+rng()*90,z);sc.set(sz,sz*(.6+rng()*.6),sz);q2.setFromEuler(new THREE.Euler(rng()*3,rng()*3,rng()*3));m.compose(v,q2,sc);roids.setMatrixAt(i,m);});roids.count=n;
+    const roids=inst(RICH_SCENERY()&&Assets.boulder||assetGeo('rock',()=>new THREE.DodecahedronGeometry(1,0)),RICH_SCENERY()?triplanarMat('darkrock',6,0xffffff,!!Assets.boulder):M(0x6d6a75,1,0,true),140);const q2=new THREE.Quaternion();const n=place(140,hw+OFFROAD_W+14,120,(x,y,z,i)=>{const sz=1.5+rng()*5;v.set(x,-40+rng()*90,z);sc.set(sz,sz*(.6+rng()*.6),sz);q2.setFromEuler(new THREE.Euler(rng()*3,rng()*3,rng()*3));m.compose(v,q2,sc);roids.setMatrixAt(i,m);});roids.count=n;
     if(type==='planetoid'){const R=115;const planet=new THREE.Mesh(new THREE.SphereGeometry(R,48,32),M(0x3fb04a,.9));planet.position.set(cx,-R-28,cz);planet.receiveShadow=true;group.add(planet);const top=-28;
       const wall=new THREE.Mesh(new THREE.CylinderGeometry(7,7,6,24),M(0xf3e2c0,.8));wall.position.set(cx,top+3,cz);wall.castShadow=true;group.add(wall);const dome=new THREE.Mesh(new THREE.SphereGeometry(7.4,28,16,0,TAU,0,Math.PI/2),M(0xff5c4d,.6));dome.position.set(cx,top+6,cz);dome.castShadow=true;group.add(dome);
       const door=new THREE.Mesh(new THREE.BoxGeometry(2.4,4,.4),M(0x3a2a1a,.9));door.position.set(cx,top+2,cz+7);group.add(door);
@@ -741,8 +772,9 @@ function buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N){
     tufts.count=c;}
   if(def.noRocks)return;
   // rocks everywhere
-  const rocks=inst(assetGeo('rock',()=>new THREE.DodecahedronGeometry(1.2,0)),RICH_SCENERY()?rockMat(def):M(def.rock,1,0,true),110);const rq=new THREE.Quaternion();
-  let placed=0,tries=0;while(placed<110&&tries<3000){tries++;const x=rand2(rng,minX-60,maxX+60),z=rand2(rng,minZ-60,maxZ+60);if(!farFromTrack(x,z,hw+OFFROAD_W+2))continue;const s=.6+rng()*1.6;const y=nearTrackY(samples,x,z);v.set(x,y+s*.4-.2,z);sc.set(s,s*.7,s);rq.setFromEuler(new THREE.Euler(rng(),rng()*TAU,rng()));m.compose(v,rq,sc);rocks.setMatrixAt(placed,m);placed++;}
+  const boulder=RICH_SCENERY()&&Assets.boulder;const rocks=inst(boulder||assetGeo('rock',()=>new THREE.DodecahedronGeometry(1.2,0)),boulder?(ROCK_LOOK[def.id]?rockMat(def,true):boulderMat()):RICH_SCENERY()?rockMat(def):M(def.rock,1,0,true),110);const rq=new THREE.Quaternion();
+  let placed=0,tries=0;while(placed<110&&tries<3000){tries++;const x=rand2(rng,minX-60,maxX+60),z=rand2(rng,minZ-60,maxZ+60);if(!farFromTrack(x,z,hw+OFFROAD_W+2))continue;const s=.6+rng()*1.6;const y=nearTrackY(samples,x,z);const tx=rng(),ty=rng()*TAU,tz=rng();v.set(x,y+s*.4-.2,z);   // the scanned boulder is already flat: keep it upright, unsquashed
+    if(boulder){sc.set(s,s*1.15,s);rq.setFromEuler(new THREE.Euler((tx-.5)*.35,ty,(tz-.5)*.35));}else{sc.set(s,s*.7,s);rq.setFromEuler(new THREE.Euler(tx,ty,tz));}m.compose(v,rq,sc);rocks.setMatrixAt(placed,m);placed++;}
   rocks.count=placed;
 }
 function applyEnvironment(def){scene.fog=new THREE.Fog(def.fog,def.fogNear||120,def.fogFar||520);skyMat.uniforms.top.value.set(def.sky);skyMat.uniforms.bot.value.set(def.horizon);
@@ -756,7 +788,10 @@ function nearTrackY(samples,x,z){let best=1e9,y=0;for(let i=0;i<samples.length;i
 // page is opened straight from disk) every model falls back to the built-in three.js shapes below.
 const Assets={ready:false,meshes:{},pivots:{}};
 // meshes keyed by Blender object name; each is a list of primitives {geo, mat}, one per material slot
-function loadAssets(){new GLTFLoader().load('assets/kartlands.glb',gltf=>{gltf.scene.updateMatrixWorld(true);
+function loadAssets(){
+  // photo-scanned boulder from Poly Haven, decimated with its detail baked to a normal map (blender/fetch_polyhaven.py)
+  new GLTFLoader().load('assets/models/boulder.glb',g=>{g.scene.updateMatrixWorld(true);g.scene.traverse(o=>{if(o.isMesh&&!Assets.boulder){const geo=o.geometry.clone();geo.applyMatrix4(o.matrixWorld);geo.userData.asset=true;Assets.boulder=geo;}});},undefined,()=>{});
+  new GLTFLoader().load('assets/kartlands.glb',gltf=>{gltf.scene.updateMatrixWorld(true);
     gltf.scene.children.forEach(node=>{if(node.name.startsWith('pivot_')){Assets.pivots[node.name]={p:node.position.clone(),q:node.quaternion.clone()};return;}const prims=[];node.traverse(o=>{if(!o.isMesh)return;const geo=o.geometry.clone();geo.applyMatrix4(o.matrixWorld);geo.userData.asset=true;prims.push({geo,mat:o.material});});Assets.meshes[node.name]=prims;});
     Assets.ready=!!(Assets.meshes.kart_body&&Assets.pivots.pivot_driver);if(Assets.ready)onAssetsReady();},undefined,e=>console.warn('Blender models unavailable, using built-in shapes:',e.message||e));}
 // one Blender part as a group of meshes; `mats` maps material slot names (Body, Accent, ...) to the racer's own materials

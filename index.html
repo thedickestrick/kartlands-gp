@@ -270,9 +270,18 @@
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
-<script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {EXRLoader} from 'three/addons/loaders/EXRLoader.js';
+import {Sky} from 'three/addons/objects/Sky.js';
+import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
+import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
+import {GTAOPass} from 'three/addons/postprocessing/GTAOPass.js';
+import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
+import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
 (function(){
 'use strict';
 // ============================================================ helpers
@@ -403,23 +412,52 @@ const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'h
 const MAX_ANISO=renderer.capabilities.getMaxAnisotropy();
 renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.9;
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(70,1,0.1,900);
 const sun=new THREE.DirectionalLight(0xffffff,2.2);sun.castShadow=true;
 sun.shadow.mapSize.set(4096,4096);sun.shadow.camera.near=1;sun.shadow.camera.far=260;
-sun.shadow.camera.left=-70;sun.shadow.camera.right=70;sun.shadow.camera.top=70;sun.shadow.camera.bottom=-70;sun.shadow.bias=-0.0008;
+sun.shadow.camera.left=-70;sun.shadow.camera.right=70;sun.shadow.camera.top=70;sun.shadow.camera.bottom=-70;sun.shadow.bias=-0.0006;sun.shadow.normalBias=0.03;
 scene.add(sun);scene.add(sun.target);
+const SUN_OFFSET=new THREE.Vector3(60,110,40);   // sun position relative to what it lights; each world can set its own
 const hemi=new THREE.HemisphereLight(0xffffff,0x556633,0.9);scene.add(hemi);
-const skyGeo=new THREE.SphereGeometry(800,24,12);
+// sky: a physical daylight sky (Preetham) with drifting procedural clouds, or a simple gradient for night, lava and space
+const sky=new THREE.Group();scene.add(sky);
 const skyMat=new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,uniforms:{top:{value:new THREE.Color(0x7fc8f0)},bot:{value:new THREE.Color(0xdff3ff)}},
   vertexShader:'varying vec3 vP;void main(){vP=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
-  fragmentShader:'uniform vec3 top;uniform vec3 bot;varying vec3 vP;void main(){float h=normalize(vP).y;float t=smoothstep(-0.05,0.5,h);gl_FragColor=vec4(mix(bot,top,t),1.0);}'});
-const sky=new THREE.Mesh(skyGeo,skyMat);scene.add(sky);
-function resize(){const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
+  fragmentShader:'uniform vec3 top;uniform vec3 bot;varying vec3 vP;void main(){float h=normalize(vP).y;float t=smoothstep(-0.05,0.5,h);gl_FragColor=vec4(mix(bot,top,t),1.0);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}'});
+const gradientSky=new THREE.Mesh(new THREE.SphereGeometry(800,24,12),skyMat);sky.add(gradientSky);
+const daySky=new Sky();daySky.scale.setScalar(900);sky.add(daySky);
+{const m=daySky.material;Object.assign(m.uniforms,{uGain:{value:1},uTime:{value:0},uClouds:{value:.4},uCloudColor:{value:new THREE.Color(1,1,1)},uHorizon:{value:new THREE.Color(0xdfe8f0)}});
+  m.fragmentShader=m.fragmentShader.replace('void main() {',`uniform float uGain;uniform float uTime;uniform float uClouds;uniform vec3 uCloudColor;uniform vec3 uHorizon;
+    float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+    float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(hash21(i),hash21(i+vec2(1,0)),f.x),mix(hash21(i+vec2(0,1)),hash21(i+vec2(1,1)),f.x),f.y);}
+    float fbm(vec2 p){float v=0.0,a=0.5;mat2 r=mat2(1.6,1.2,-1.2,1.6);for(int i=0;i<6;i++){v+=a*vnoise(p);p=r*p;a*=0.5;}return v;}
+    void main() {`).replace('gl_FragColor = vec4( retColor, 1.0 );',`retColor*=uGain;
+      if(uClouds>0.0&&direction.y>0.0){vec2 cp=direction.xz/(direction.y+0.12)*1.6+vec2(uTime*0.006,uTime*0.0025);
+        float c=fbm(cp);float c2=fbm(cp*2.3+3.1);float cov=smoothstep(1.0-uClouds,1.0-uClouds+0.28,c*0.75+c2*0.25);
+        float lightSide=pow(max(dot(direction,vSunDirection),0.0),6.0);float dens=smoothstep(0.45,0.95,c);
+        vec3 cloud=uCloudColor*mix(1.0,0.62,dens)+uCloudColor*0.35*lightSide;
+        retColor=mix(retColor,cloud,cov*smoothstep(0.0,0.18,direction.y)*0.96);}
+      retColor=mix(uHorizon,retColor,smoothstep(-0.03,0.16,direction.y));
+      gl_FragColor = vec4( retColor, 1.0 );`);}
+function resize(){const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();Post.reset();}
 addEventListener('resize',resize);
-// graphics quality: render scale relative to the device pixel ratio, and shadow map size
-const QUALITY={sharp:{label:'Sharp',pr:()=>Math.min(devicePixelRatio*1.5,2.5),shadow:4096},balanced:{label:'Balanced',pr:()=>Math.min(devicePixelRatio,1.5),shadow:2048},fast:{label:'Fast',pr:()=>1,shadow:1024}};
+// graphics quality: render scale, shadow map size, and which post effects run (ambient occlusion, bloom)
+const QUALITY={sharp:{label:'Sharp',pr:()=>Math.min(devicePixelRatio,2),shadow:4096,post:true,ao:true},
+  balanced:{label:'Balanced',pr:()=>Math.min(devicePixelRatio,1.5),shadow:2048,post:true,ao:false},
+  fast:{label:'Fast',pr:()=>Math.min(devicePixelRatio,1),shadow:1024,post:false,ao:false}};
 const QUALITY_ORDER=['sharp','balanced','fast'];let quality='sharp';try{quality=QUALITY[localStorage.getItem('kgp-quality')]?localStorage.getItem('kgp-quality'):'sharp';}catch(e){}
+// post-processing: one composer per camera (split screen has two). HDR buffer with MSAA, then AO, bloom, and tone mapping in OutputPass.
+const Post={list:new Map(),
+  reset(){this.list.forEach(c=>{c.composer.dispose();c.passes&&c.passes.forEach(p=>p.dispose&&p.dispose());});this.list.clear();},
+  get(cam,w,h){const q=QUALITY[quality];if(!q.post)return null;let c=this.list.get(cam);
+    if(!c){const rt=new THREE.WebGLRenderTarget(w,h,{type:THREE.HalfFloatType,samples:4});const composer=new EffectComposer(renderer,rt);composer.setPixelRatio(renderer.getPixelRatio());
+      const passes=[new RenderPass(scene,cam)];
+      if(q.ao){const ao=new GTAOPass(scene,cam,w,h);ao.updateGtaoMaterial({radius:1.2,distanceExponent:1.4,thickness:1.2,scale:1.1,samples:12});ao.updatePdMaterial({lumaPhi:10,depthPhi:2,normalPhi:3,radius:6,rings:2,samples:12});ao.blendIntensity=.85;passes.push(ao);}
+      passes.push(new UnrealBloomPass(new THREE.Vector2(w,h),.28,.55,1.1));passes.push(new OutputPass());
+      passes.forEach(p=>composer.addPass(p));c={composer,passes,w:0,h:0};this.list.set(cam,c);}
+    if(c.w!==w||c.h!==h){c.composer.setSize(w,h);c.w=w;c.h=h;}return c.composer;}};
 function applyQuality(){const q=QUALITY[quality];renderer.setPixelRatio(q.pr());if(sun.shadow.map){sun.shadow.map.dispose();sun.shadow.map=null;}sun.shadow.mapSize.set(q.shadow,q.shadow);resize();
   const b=$('btnQuality');if(b)b.textContent='Graphics: '+q.label;try{localStorage.setItem('kgp-quality',quality);}catch(e){}}
 applyQuality();
@@ -451,6 +489,75 @@ function makeSwirlTex(){const S=256;const c=document.createElement('canvas');c.w
   const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;}
 const roadTex=makeRoadTex(),curbTex=makeCurbTex(),checkerTex=makeCheckerTex();
 
+
+// ============================================================ world looks: PBR ground and road, HDRI lighting, sky
+// Textures come from blender/build_textures.py and HDRIs from Poly Haven (CC0, via @pmndrs/assets). Browsers refuse to
+// hand local files to WebGL, so a page opened straight from disk keeps the simple canvas textures and gradient sky.
+const RICH=location.protocol!=='file:';
+const LOOKS={
+  sunny:{ground:'grass',hdri:'park',sky:{t:2.5,r:1.2,clouds:.42}},
+  desert:{ground:'sand',groundTint:0xe6ddd0,hdri:'dawn',env:.3,sky:{t:5,r:1.6,clouds:.12},sun:[75,70,30]},
+  frost:{ground:'snow',hdri:'sky',env:.6,sky:{t:2,r:.9,clouds:.55},exposure:.8},
+  harbor:{ground:'pavers',hdri:'night',env:.6,roadRough:.4},
+  lava:{ground:'basalt',hdri:'sunset',env:.5},
+  cove:{ground:'beach',groundTint:0xd2c7ae,hdri:'venice',env:.35,sky:{t:3,r:1.4,clouds:.3}},
+  canyon:{ground:'dirt',hdri:'dawn',env:.3,sky:{t:4.5,r:1.8,clouds:.18},sun:[80,60,20]},
+  planetoid:{hdri:'night',env:.4},
+  prism:{hdri:'night',env:.4},
+  lagoon:{ground:'beach',groundTint:0xd2c7ae,hdri:'venice',env:.35,sky:{t:3,r:1.3,clouds:.45}},
+  ashfall:{ground:'basalt',hdri:'sunset',env:.45},
+  portals:{ground:'grass',groundTint:0xc4d6c8,hdri:'park',sky:{t:2.2,r:1,clouds:.3}},
+};
+const TEX_TILE={asphalt:5,grass:3.5,sand:5,beach:4,dirt:5,snow:6,basalt:5,pavers:4};   // metres per texture repeat
+const texLoader=new THREE.TextureLoader(),texCache={};
+function pbrSet(name){if(texCache[name])return texCache[name];
+  const load=(suf,srgb)=>{const t=texLoader.load('assets/textures/'+name+'_'+suf+'.jpg');t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=MAX_ANISO;if(srgb)t.colorSpace=THREE.SRGBColorSpace;t.userData.keep=true;return t;};
+  return texCache[name]={map:load('c',true),normalMap:load('n'),orm:load('r'),tile:TEX_TILE[name]||4};}
+function pbrMaterial(name,extra){const P=pbrSet(name);const {roadW,...opts}=extra||{};
+  const m=new THREE.MeshStandardMaterial(Object.assign({map:P.map,normalMap:P.normalMap,roughnessMap:P.orm,aoMap:P.orm,aoMapIntensity:.8,roughness:1,metalness:0},opts));
+  worldUV(m,P.tile,roadW);return m;}
+// sample textures in world space (metres) so ribbons and the ground plane line up seamlessly; break up visible tiling by blending
+// a second, rotated scale and a blurred large-scale sample; on roads also paint edge lines and a darker rubbered racing line
+function worldUV(mat,tile,roadW){
+  mat.onBeforeCompile=sh=>{sh.uniforms.uTile={value:1/tile};sh.uniforms.uRoadW={value:roadW||0};
+    sh.vertexShader=sh.vertexShader.replace('void main() {','uniform float uTile;varying vec2 vRoad;\nvoid main() {').replace('#include <uv_vertex>',`#include <uv_vertex>
+      vec2 wuv=(modelMatrix*vec4(position,1.0)).xz*uTile;vRoad=uv;
+      #ifdef USE_MAP
+      vMapUv=wuv;
+      #endif
+      #ifdef USE_NORMALMAP
+      vNormalMapUv=wuv;
+      #endif
+      #ifdef USE_ROUGHNESSMAP
+      vRoughnessMapUv=wuv;
+      #endif
+      #ifdef USE_AOMAP
+      vAoMapUv=wuv;
+      #endif`);
+    sh.fragmentShader=sh.fragmentShader.replace('void main() {','uniform float uRoadW;varying vec2 vRoad;\nvoid main() {').replace('#include <map_fragment>',`#ifdef USE_MAP
+      vec2 ruv=mat2(0.8,-0.6,0.6,0.8)*vMapUv*0.37+vec2(0.23,0.61);
+      vec4 sampledDiffuseColor=mix(texture2D(map,vMapUv),texture2D(map,ruv),0.35);
+      vec3 lowc=texture2D(map,vMapUv*0.045+vec2(0.5,0.13),7.0).rgb;vec3 avgc=textureLod(map,vec2(0.5),12.0).rgb;
+      sampledDiffuseColor.rgb*=mix(1.0,clamp(dot(lowc,vec3(0.333))/max(dot(avgc,vec3(0.333)),1e-3),0.6,1.5),0.75);
+      diffuseColor*=sampledDiffuseColor;
+      #endif
+      if(uRoadW>0.0){float rx=vRoad.x*uRoadW;float edge=min(rx,uRoadW-rx);
+        float paint=smoothstep(0.30,0.34,edge)*(1.0-smoothstep(0.60,0.64,edge));
+        float rub=exp(-pow((rx-uRoadW*0.32)/(uRoadW*0.1),2.0))+exp(-pow((rx-uRoadW*0.68)/(uRoadW*0.1),2.0));
+        diffuseColor.rgb*=1.0-0.22*rub;diffuseColor.rgb=mix(diffuseColor.rgb,vec3(0.75,0.74,0.7),paint*0.93);}`);};
+  mat.customProgramCacheKey=()=>'worldUV'+(roadW?'road':'');}
+const pmrem=new THREE.PMREMGenerator(renderer),exrLoader=new EXRLoader().setDataType(THREE.FloatType),envCache={};
+// HDRI -> prefiltered environment map; `gain` scales the image so each world's ambient light sits right against the sun
+function loadEnv(name,gain){const key=name+'@'+gain;if(!envCache[key])envCache[key]=new Promise(res=>exrLoader.load('assets/hdri/'+name+'.exr',t=>{
+    const d=t.image.data;for(let i=0;i<d.length;i++)d[i]=Math.min(d[i]*gain,16*gain);t.mapping=THREE.EquirectangularReflectionMapping;t.needsUpdate=true;
+    const rt=pmrem.fromEquirectangular(t);t.dispose();res(rt.texture);},undefined,()=>res(null)));return envCache[key];}
+function applyLook(def){const L=LOOKS[def.id]||{};SUN_OFFSET.fromArray(L.sun||[60,110,40]);
+  const day=RICH&&!!L.sky;daySky.visible=day;gradientSky.visible=!day;
+  if(day){const u=daySky.material.uniforms;u.turbidity.value=L.sky.t;u.rayleigh.value=L.sky.r;u.mieCoefficient.value=.004;u.mieDirectionalG.value=.82;
+    u.sunPosition.value.copy(SUN_OFFSET).normalize();u.uClouds.value=L.sky.clouds;u.uHorizon.value.set(def.fog);u.uGain.value=L.sky.gain||.3;scene.fog.near*=1.5;scene.fog.far=Math.min(880,scene.fog.far*1.6);u.uCloudColor.value.set(L.sky.cloud||0xf4f6fa);}
+  renderer.toneMappingExposure=L.exposure||.9;scene.environment=null;
+  if(RICH&&L.hdri){hemi.intensity*=.3;loadEnv(L.hdri,L.env||1).then(t=>{if(track&&track.def===def)scene.environment=t;});}}
+
 // ============================================================ track
 let track=null;
 function buildRibbon(samples,offA,offB,yA,yB,segLen,vScale){const N=samples.length,pos=[],uv=[],idx=[];
@@ -467,20 +574,20 @@ function buildTrack(def){
   for(let i=0;i<N;i++){const u=i/N;const p=curve.getPointAt(u);const t=curve.getTangentAt(u).normalize();const r=new THREE.Vector3().crossVectors(t,up).normalize();samples.push({p,t,r,i});}
   const W=def.width,hw=W/2;
   // road
-  const roadMat=def.road==='rainbow'?(()=>{const t=makeRainbowTex();return new THREE.MeshStandardMaterial({map:t,emissive:0xffffff,emissiveMap:t,emissiveIntensity:.45,roughness:.5,metalness:.1});})():new THREE.MeshStandardMaterial({map:roadTex,roughness:.95});
+  const roadMat=def.road==='rainbow'?(()=>{const t=makeRainbowTex();return new THREE.MeshStandardMaterial({map:t,emissive:0xffffff,emissiveMap:t,emissiveIntensity:.45,roughness:.5,metalness:.1});})():(RICH?pbrMaterial('asphalt',{roadW:W,roughness:(LOOKS[def.id]||{}).roadRough||1}):new THREE.MeshStandardMaterial({map:roadTex,roughness:.95}));
   const road=new THREE.Mesh(buildRibbon(samples,-hw,hw,0.06,0.06,segLen,9),roadMat);road.receiveShadow=true;group.add(road);
-  const curbMat=def.neon?new THREE.MeshStandardMaterial({color:def.neon,emissive:def.neon,emissiveIntensity:1.4,roughness:.4}):new THREE.MeshStandardMaterial({map:curbTex,roughness:.8});
+  const curbMat=def.neon?new THREE.MeshStandardMaterial({color:def.neon,emissive:def.neon,emissiveIntensity:1.4,roughness:.4}):new THREE.MeshStandardMaterial({map:curbTex,roughness:.55});
   const cl=new THREE.Mesh(buildRibbon(samples,-hw-1.1,-hw+0.05,0.09,0.09,segLen,2.4),curbMat);cl.receiveShadow=true;group.add(cl);
   const cr=new THREE.Mesh(buildRibbon(samples,hw-0.05,hw+1.1,0.09,0.09,segLen,2.4),curbMat);cr.receiveShadow=true;group.add(cr);
   // shoulder & skirt
   if(def.noGround){const gmat=new THREE.MeshStandardMaterial({color:def.ground,roughness:.6,metalness:.2,transparent:true,opacity:.9});
     const sh=new THREE.Mesh(buildRibbon(samples,-hw-OFFROAD_W-1.5,hw+OFFROAD_W+1.5,-.05,-.05,segLen,6),gmat);sh.receiveShadow=true;group.add(sh);
     const under=new THREE.Mesh(buildRibbon(samples,-hw-OFFROAD_W-1.5,hw+OFFROAD_W+1.5,-1.6,-1.6,segLen,6),new THREE.MeshStandardMaterial({color:def.ground2,roughness:.7,side:THREE.DoubleSide}));group.add(under);}
-  else{const gtex=makeGroundTex(def.ground,def.ground2);const gmat=new THREE.MeshStandardMaterial({map:gtex,roughness:1});
+  else{const look=LOOKS[def.id]||{};const gmat=RICH&&look.ground?pbrMaterial(look.ground,{color:look.groundTint||0xffffff}):new THREE.MeshStandardMaterial({map:makeGroundTex(def.ground,def.ground2),roughness:1});
     const sh=new THREE.Mesh(buildRibbon(samples,-hw-OFFROAD_W-4,hw+OFFROAD_W+4,0,0,segLen,6),gmat);sh.receiveShadow=true;group.add(sh);
     const skL=new THREE.Mesh(buildRibbon(samples,-hw-OFFROAD_W-30,-hw-OFFROAD_W-4,-1.5,0,segLen,6),gmat);group.add(skL);
     const skR=new THREE.Mesh(buildRibbon(samples,hw+OFFROAD_W+4,hw+OFFROAD_W+30,0,-1.5,segLen,6),gmat);group.add(skR);
-    const gtex2=makeGroundTex(def.ground2,def.ground);const ground=new THREE.Mesh(new THREE.PlaneGeometry(1600,1600),new THREE.MeshStandardMaterial({map:gtex2,roughness:1}));ground.rotation.x=-Math.PI/2;ground.position.y=-1.5;ground.receiveShadow=true;group.add(ground);}
+    const ground=new THREE.Mesh(new THREE.PlaneGeometry(1600,1600),gmat.map&&gmat.map.userData.keep?gmat:new THREE.MeshStandardMaterial({map:makeGroundTex(def.ground2,def.ground),roughness:1}));ground.rotation.x=-Math.PI/2;ground.position.y=-1.5;ground.receiveShadow=true;group.add(ground);}
   if(def.stars){const n=3200;const pos=new Float32Array(n*3);const col=new Float32Array(n*3);const cxs=(samples[0].p.x),czs=(samples[0].p.z);for(let i=0;i<n;i++){const u=Math.random()*2-1,th=Math.random()*TAU;const r=Math.sqrt(1-u*u);const R=650+Math.random()*120;pos[i*3]=cxs+r*Math.cos(th)*R;pos[i*3+1]=u*R;pos[i*3+2]=czs+r*Math.sin(th)*R;const b=.6+Math.random()*.4;const tint=Math.random();col[i*3]=b*(tint<.2?1:.85);col[i*3+1]=b*.9;col[i*3+2]=b*(tint>.8?1:.9);}
     const sg=new THREE.BufferGeometry();sg.setAttribute('position',new THREE.BufferAttribute(pos,3));sg.setAttribute('color',new THREE.BufferAttribute(col,3));const stars=new THREE.Points(sg,new THREE.PointsMaterial({size:2.2,sizeAttenuation:false,vertexColors:true,fog:false}));stars.frustumCulled=false;group.add(stars);}
   // finish line
@@ -589,7 +696,7 @@ function buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N){
   rocks.count=placed;
 }
 function applyEnvironment(def){scene.fog=new THREE.Fog(def.fog,def.fogNear||120,def.fogFar||520);skyMat.uniforms.top.value.set(def.sky);skyMat.uniforms.bot.value.set(def.horizon);
-  hemi.groundColor.set(def.ground);hemi.color.set(def.hemiSky||0xffffff);hemi.intensity=def.hemiI==null?0.9:def.hemiI;sun.intensity=def.sunI==null?2.2:def.sunI;sun.color.set(def.sunColor||0xffffff);}
+  hemi.groundColor.set(def.ground);hemi.color.set(def.hemiSky||0xffffff);hemi.intensity=def.hemiI==null?0.9:def.hemiI;sun.intensity=def.sunI==null?2.2:def.sunI;sun.color.set(def.sunColor||0xffffff);applyLook(def);}
 function rand2(rng,a,b){return a+rng()*(b-a);}
 function nearTrackY(samples,x,z){let best=1e9,y=0;for(let i=0;i<samples.length;i+=8){const p=samples[i].p;const d=(p.x-x)**2+(p.z-z)**2;if(d<best){best=d;y=p.y;}}
   const dist=Math.sqrt(best);return dist<40?y*(1-dist/40)-1.5*(dist/40):-1.5;}
@@ -597,31 +704,15 @@ function nearTrackY(samples,x,z){let best=1e9,y=0;for(let i=0;i<samples.length;i
 // ============================================================ Blender models
 // assets/kartlands.glb is built by blender/build_assets.py. Until it loads (or if it can't, e.g. when the
 // page is opened straight from disk) every model falls back to the built-in three.js shapes below.
-const Assets={ready:false,meshes:{},mats:{}};
-function parseGLB(buf){const dv=new DataView(buf);if(dv.getUint32(0,true)!==0x46546C67)throw new Error('not a GLB file');
-  let json=null,bin=null;for(let off=12;off<dv.byteLength;){const len=dv.getUint32(off,true),type=dv.getUint32(off+4,true);
-    if(type===0x4E4F534A)json=JSON.parse(new TextDecoder().decode(new Uint8Array(buf,off+8,len)));else if(type===0x004E4942)bin=buf.slice(off+8,off+8+len);off+=8+len;}
-  const TYPES={5121:Uint8Array,5123:Uint16Array,5125:Uint32Array,5126:Float32Array},SIZE={SCALAR:1,VEC3:3};
-  const acc=i=>{const a=json.accessors[i],v=json.bufferViews[a.bufferView];if(v.byteStride&&v.byteStride!==SIZE[a.type]*TYPES[a.componentType].BYTES_PER_ELEMENT)throw new Error('interleaved data');
-    return new TYPES[a.componentType](bin,(v.byteOffset||0)+(a.byteOffset||0),a.count*SIZE[a.type]).slice();};
-  const out={},mtx=new THREE.Matrix4();
-  json.nodes.forEach(n=>{if(n.mesh==null)return;mtx.compose(new THREE.Vector3().fromArray(n.translation||[0,0,0]),new THREE.Quaternion().fromArray(n.rotation||[0,0,0,1]),new THREE.Vector3().fromArray(n.scale||[1,1,1]));
-    out[n.name]=json.meshes[n.mesh].primitives.map(pr=>{const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(acc(pr.attributes.POSITION),3));
-      if(pr.indices!=null)geo.setIndex(new THREE.BufferAttribute(acc(pr.indices),1));
-      if(pr.attributes.NORMAL!=null)geo.setAttribute('normal',new THREE.BufferAttribute(acc(pr.attributes.NORMAL),3));else geo.computeVertexNormals();
-      geo.applyMatrix4(mtx);geo.computeBoundingSphere();geo.userData.asset=true;return {geo,mat:pr.material!=null?json.materials[pr.material]:null};});});
-  return out;}
-// the colours authored in Blender, for parts the game doesn't recolour (rocket, oil)
-function assetMat(m){if(!m)return new THREE.MeshStandardMaterial();if(Assets.mats[m.name])return Assets.mats[m.name];
-  const p=m.pbrMetallicRoughness||{},c=p.baseColorFactor||[1,1,1,1];
-  const mat=new THREE.MeshStandardMaterial({color:new THREE.Color(c[0],c[1],c[2]),metalness:p.metallicFactor==null?1:p.metallicFactor,roughness:p.roughnessFactor==null?1:p.roughnessFactor});
-  if(m.emissiveFactor){const st=m.extensions&&m.extensions.KHR_materials_emissive_strength;mat.emissive.setRGB(m.emissiveFactor[0],m.emissiveFactor[1],m.emissiveFactor[2]);mat.emissiveIntensity=st?st.emissiveStrength:1;}
-  return Assets.mats[m.name]=mat;}
+const Assets={ready:false,meshes:{}};
+// meshes keyed by Blender object name; each is a list of primitives {geo, mat}, one per material slot
+function loadAssets(){new GLTFLoader().load('assets/kartlands.glb',gltf=>{gltf.scene.updateMatrixWorld(true);
+    gltf.scene.children.forEach(node=>{const prims=[];node.traverse(o=>{if(!o.isMesh)return;const geo=o.geometry.clone();geo.applyMatrix4(o.matrixWorld);geo.userData.asset=true;prims.push({geo,mat:o.material});});Assets.meshes[node.name]=prims;});
+    Assets.ready=!!Assets.meshes.kart_body;if(Assets.ready)onAssetsReady();},undefined,e=>console.warn('Blender models unavailable, using built-in shapes:',e.message||e));}
 // one Blender part as a group of meshes; `mats` maps material slot names (Body, Accent, ...) to the racer's own materials
-function assetPart(name,mats,shadow){const g=new THREE.Group();(Assets.meshes[name]||[]).forEach(pr=>{const m=new THREE.Mesh(pr.geo,(mats&&pr.mat&&mats[pr.mat.name])||assetMat(pr.mat));m.castShadow=shadow!==false;g.add(m);});return g;}
+function assetPart(name,mats,shadow){const g=new THREE.Group();(Assets.meshes[name]||[]).forEach(pr=>{const m=new THREE.Mesh(pr.geo,(mats&&mats[pr.mat.name])||pr.mat);m.castShadow=shadow!==false;g.add(m);});return g;}
 const assetGeo=(name,fallback)=>{const p=Assets.ready&&Assets.meshes[name];return p?p[0].geo:fallback();};
-fetch('assets/kartlands.glb').then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.arrayBuffer();}).then(buf=>{Assets.meshes=parseGLB(buf);Assets.ready=!!Assets.meshes.kart_body;})
-  .catch(e=>console.warn('Blender models unavailable, using built-in shapes:',e.message||e));
+loadAssets();
 
 // ============================================================ kart model
 function kartEffects(g){
@@ -633,7 +724,8 @@ function kartEffects(g){
 function buildKartModelGLB(ch){
   const g=new THREE.Group();g.rotation.order='YXZ';
   const M=(c,r,m)=>new THREE.MeshStandardMaterial({color:c,roughness:r==null?.5:r,metalness:m||0});
-  const mats={Body:M(ch.color,.38,.2),BodyDark:M(new THREE.Color(ch.color).multiplyScalar(.62).getHex(),.5,.15),Accent:M(ch.accent,.4,.1),Dark:M(0x1d1f26,.8),Chrome:M(0xd8dde6,.22,.9),Rubber:M(0x15161a,.95),
+  const paint=(c,r)=>new THREE.MeshPhysicalMaterial({color:c,roughness:r,metalness:.25,clearcoat:1,clearcoatRoughness:.05});   // clear-coated car paint
+  const mats={Body:paint(ch.color,.4),BodyDark:paint(new THREE.Color(ch.color).multiplyScalar(.62).getHex(),.5),Accent:paint(ch.accent,.4),Dark:M(0x1d1f26,.7),Chrome:M(0xe4e8ee,.12,1),Rubber:M(0x121315,.88),
     Glass:new THREE.MeshPhysicalMaterial({color:0x1b2a3a,roughness:.08,metalness:.4,clearcoat:1,clearcoatRoughness:.05}),Lamp:new THREE.MeshStandardMaterial({color:0xfff4c2,emissive:0xffe08a,emissiveIntensity:1.2,roughness:.3}),
     Plate:M(0xf6f1e6,.6),Suit:M(ch.suit,.65),Skin:M(ch.skin,.75),Helmet:M(ch.helmet,.28,.12),Glove:M(0x2a2d36,.8),Eye:M(0xf7f7f2,.35),
     Glow:new THREE.MeshStandardMaterial({color:ch.accent,emissive:ch.accent,emissiveIntensity:.7,roughness:.4})};
@@ -807,7 +899,7 @@ try{G.splitDir=localStorage.getItem('kgp-split')==='v'?'v':'h';}catch(e){}
 function setupViews(){G.views.forEach(v=>v.hud.root.remove());G.views=[];
   G.players.forEach((k,i)=>{const hud=buildHUD();hud.root.classList.add('v'+i);const v={i,kart:k,cam:cams[i],camPos:new THREE.Vector3(),camLook:new THREE.Vector3(),shake:0,hud,mx:hud.el.minimap.getContext('2d'),msgT:0,msgTimed:false,hudTick:i*0.12};k.view=v;G.views.push(v);});
   $('hud').classList.toggle('split',G.views.length>1);setSplitDir(G.splitDir);}
-function disposeGroup(g){g.traverse(o=>{if(o.geometry&&!o.geometry.userData.asset)o.geometry.dispose();if(o.material){const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>{if(m.map&&m.map!==roadTex&&m.map!==curbTex&&m.map!==checkerTex)m.map.dispose();m.dispose();});}});}
+function disposeGroup(g){g.traverse(o=>{if(o.geometry&&!o.geometry.userData.asset)o.geometry.dispose();if(o.material){const ms=Array.isArray(o.material)?o.material:[o.material];ms.forEach(m=>{if(m.map&&m.map!==roadTex&&m.map!==curbTex&&m.map!==checkerTex&&!m.map.userData.keep)m.map.dispose();m.dispose();});}});}
 
 // ============================================================ track queries
 function updateTrackIndex(k,full){const S=track.samples,N=track.N;let best=1e18,bi=k.idx;const x=k.pos.x,z=k.pos.z;
@@ -1175,13 +1267,15 @@ function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':
 let finishWait=0;
 function frame(now){requestAnimationFrame(frame);const dt=Math.min(0.05,(now-G.lastFrame)/1000||0.016);G.lastFrame=now;pollGamepads();tick(dt);render();}
 const _sz=new THREE.Vector2();
-function render(){renderer.getSize(_sz);const w=_sz.x,h=_sz.y;
-  if(G.views.length>1&&(G.state==='race'||G.state==='results')){renderer.setScissorTest(true);
-    G.views.forEach((v,i)=>{let x=0,y=0,vw=w,vh=h;if(G.splitDir==='v'){vw=Math.floor(w/2);x=i===0?0:w-vw;}else{vh=Math.floor(h/2);y=i===0?h-vh:0;}renderer.setViewport(x,y,vw,vh);renderer.setScissor(x,y,vw,vh);v.cam.aspect=vw/vh;v.cam.updateProjectionMatrix();
-      sky.position.copy(v.cam.position);sun.position.set(v.kart.pos.x+60,v.kart.pos.y+110,v.kart.pos.z+40);sun.target.position.copy(v.kart.pos);sun.target.updateMatrixWorld();renderer.render(scene,v.cam);});
-    renderer.setScissorTest(false);renderer.setViewport(0,0,w,h);}
-  else{const v=G.views[0];const cam=v&&(G.state==='race'||G.state==='results')?v.cam:camera;if(v&&cam===v.cam){sun.position.set(v.kart.pos.x+60,v.kart.pos.y+110,v.kart.pos.z+40);sun.target.position.copy(v.kart.pos);}
-    cam.aspect=w/h;cam.updateProjectionMatrix();sky.position.copy(cam.position);renderer.render(scene,cam);}}
+function aimSun(p){sun.position.copy(p).add(SUN_OFFSET);sun.target.position.copy(p);sun.target.updateMatrixWorld();}
+function drawView(cam,x,y,w,h){renderer.setViewport(x,y,w,h);renderer.setScissor(x,y,w,h);sky.position.copy(cam.position);const c=Post.get(cam,w,h);if(c)c.render();else renderer.render(scene,cam);}
+function render(){renderer.getSize(_sz);const w=_sz.x,h=_sz.y;daySky.material.uniforms.uTime.value=performance.now()/1000;renderer.setScissorTest(true);
+  if(G.views.length>1&&(G.state==='race'||G.state==='results')){
+    G.views.forEach((v,i)=>{let x=0,y=0,vw=w,vh=h;if(G.splitDir==='v'){vw=Math.floor(w/2);x=i===0?0:w-vw;}else{vh=Math.floor(h/2);y=i===0?h-vh:0;}v.cam.aspect=vw/vh;v.cam.updateProjectionMatrix();
+      aimSun(v.kart.pos);drawView(v.cam,x,y,vw,vh);});}
+  else{const v=G.views[0];const cam=v&&(G.state==='race'||G.state==='results')?v.cam:camera;if(v&&cam===v.cam)aimSun(v.kart.pos);
+    cam.aspect=w/h;cam.updateProjectionMatrix();drawView(cam,0,0,w,h);}
+  renderer.setScissorTest(false);renderer.setViewport(0,0,w,h);}
 function countdown(prev){if(prev<0){const step=Math.ceil(-G.raceTime);if(step!==G.countStep){G.countStep=step;if(step>0&&step<=3){G.views.forEach(v=>showMsg(v,String(step)));Audio.sfx('count');}}
     if(G.raceTime>=0){G.views.forEach(v=>showMsg(v,'GO!','',.9));Audio.sfx('go');return true;}}return false;}
 // ---------- gamepads: pad 0 drives player 1, pad 1 drives player 2 in split screen; any pad drives player 1 otherwise
@@ -1256,7 +1350,7 @@ function tick(dt){
 }
 let stragglerWait=0;
 requestAnimationFrame(frame);
-window.__kartDebug={G,inputs,input,tick,Net,pollGamepads,gpState,get track(){return track;},render};
+window.__kartDebug={G,inputs,input,tick,Net,pollGamepads,gpState,get track(){return track;},render,renderer,scene,sun,hemi,daySky,THREE,Post};
 
 // ============================================================ menus
 function buildCharGrid(container,p){const cc=$(container);cc.innerHTML='';const other=G.mode==='split'?G.selChars[1-p]:-1;CHARACTERS.forEach((ch,i)=>{const d=document.createElement('div');d.className='card'+(i===G.selChars[p]?' sel':'')+(i===other?' dis':'');d.tabIndex=0;const hex='#'+new THREE.Color(ch.color).getHexString();
@@ -1294,10 +1388,12 @@ function togglePause(){if(G.state!=='race'||Net.role)return;G.paused=!G.paused;$
 addEventListener('beforeunload',()=>{if(Net.peer)try{Net.peer.destroy();}catch(e){}});
 $('loading').textContent='Ready';
 // idle menu backdrop: the currently loaded track slowly orbits behind the menus
-let backdropAngle=0,backdropRunning=false;
+let backdropAngle=0,backdropRunning=false;const _backdropC=new THREE.Vector3();
+// when the Blender models arrive, rebuild the menu backdrop so it shows them
+function onAssetsReady(){if(G.state==='menu'&&track){scene.remove(track.group);disposeGroup(track.group);track=null;startBackdrop();}}
 function startBackdrop(){if(!track){const d=TRACKS[0];track=buildTrack(d);scene.add(track.group);applyEnvironment(d);}
   if(backdropRunning)return;backdropRunning=true;const b=track.bounds;const cx=(b.minX+b.maxX)/2,cz=(b.minZ+b.maxZ)/2;
-  (function spin(){if(G.state!=='menu'){backdropRunning=false;return;}backdropAngle+=0.0025;const r=170;camera.position.set(cx+Math.cos(backdropAngle)*r,70,cz+Math.sin(backdropAngle)*r);camera.lookAt(cx,0,cz);sun.position.set(cx+60,110,cz+40);sun.target.position.set(cx,0,cz);sky.position.copy(camera.position);camera.fov=60;camera.updateProjectionMatrix();requestAnimationFrame(spin);})();}
+  (function spin(){if(G.state!=='menu'){backdropRunning=false;return;}backdropAngle+=0.0025;const r=170;camera.position.set(cx+Math.cos(backdropAngle)*r,70,cz+Math.sin(backdropAngle)*r);camera.lookAt(cx,0,cz);aimSun(_backdropC.set(cx,0,cz));camera.fov=60;camera.updateProjectionMatrix();requestAnimationFrame(spin);})();}
 startBackdrop();
 Net.resume();
 $('btnMenu').addEventListener('click',()=>{if(G.state==='menu')startBackdrop();});$('btnQuit').addEventListener('click',startBackdrop);

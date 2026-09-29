@@ -546,6 +546,44 @@ function worldUV(mat,tile,roadW){
         float rub=exp(-pow((rx-uRoadW*0.32)/(uRoadW*0.1),2.0))+exp(-pow((rx-uRoadW*0.68)/(uRoadW*0.1),2.0));
         diffuseColor.rgb*=1.0-0.22*rub;diffuseColor.rgb=mix(diffuseColor.rgb,vec3(0.75,0.74,0.7),paint*0.93);}`);};
   mat.customProgramCacheKey=()=>'worldUV'+(roadW?'road':'');}
+
+// ---- scenery materials: alpha-cut foliage cards, world-projected (triplanar) rock, animated water
+const rgbaCache={};
+function rgbaTex(name){if(!rgbaCache[name]){const t=texLoader.load('assets/textures/'+name+'.png');t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=MAX_ANISO;t.userData.keep=true;rgbaCache[name]=t;}return rgbaCache[name];}
+const RICH_SCENERY=()=>RICH&&Assets.ready;
+// foliage cards get normals pointing out from the plant's centre (and slightly up), so a canopy shades as one volume
+function foliageNormals(geo,cy,squash){if(geo.userData.foliage)return geo;geo.userData.foliage=true;const p=geo.attributes.position,n=geo.attributes.normal,v=new THREE.Vector3();
+  for(let i=0;i<p.count;i++){v.set(p.getX(i),(p.getY(i)-cy)*squash,p.getZ(i));v.y+=.45*v.length()+.3;v.normalize();n.setXYZ(i,v.x,v.y,v.z);}n.needsUpdate=true;return geo;}
+// palm fronds lie along local +y with +z drooping downward once placed, so their "up" is local -z
+function frondNormals(geo){if(geo.userData.foliage)return geo;geo.userData.foliage=true;const p=geo.attributes.position,n=geo.attributes.normal;
+  for(let i=0;i<p.count;i++){const x=p.getX(i);const l=Math.hypot(x*.35,1);n.setXYZ(i,x*.35/l,0,-1/l);}n.needsUpdate=true;return geo;}
+function upNormals(geo){if(geo.userData.foliage)return geo;geo.userData.foliage=true;const n=geo.attributes.normal;for(let i=0;i<n.count;i++)n.setXYZ(i,0,1,0);n.needsUpdate=true;return geo;}
+function foliageMat(name,tint,mix){const m=new THREE.MeshStandardMaterial({map:rgbaTex(name),alphaTest:.3,alphaToCoverage:true,side:THREE.DoubleSide,roughness:.8,color:new THREE.Color(0xffffff).lerp(new THREE.Color(tint),mix==null?.3:mix)});
+  m.onBeforeCompile=sh=>{sh.fragmentShader=sh.fragmentShader.replace('#include <normal_fragment_begin>',THREE.ShaderChunk.normal_fragment_begin.replace('normal *= faceDirection;',''));};m.customProgramCacheKey=()=>'foliage';return m;}   // both sides share the canopy normal
+function barkMat(tint,gain){const P=pbrSet('bark');return new THREE.MeshStandardMaterial({map:P.map,normalMap:P.normalMap,roughness:.95,color:new THREE.Color(0xffffff).lerp(new THREE.Color(tint||0x6b4a2b),.3).multiplyScalar(gain||1.8)});}
+// rock surfaces sample their texture from three world-space planes blended by the normal, so no UVs are needed
+function triplanarMat(name,tile,tint){const P=pbrSet(name);const c=new THREE.Color(tint||0xffffff),mx=Math.max(c.r,c.g,c.b,1e-3);
+  const m=new THREE.MeshStandardMaterial({map:P.map,roughnessMap:P.orm,roughness:1,flatShading:true,color:c.multiplyScalar(1/mx)});
+  m.onBeforeCompile=sh=>{sh.uniforms.uTri={value:1/tile};
+    sh.vertexShader=sh.vertexShader.replace('void main() {','varying vec3 vTriP;varying vec3 vTriN;\nvoid main() {').replace('#include <worldpos_vertex>',`#include <worldpos_vertex>
+      vec4 triP=vec4(transformed,1.0);vec3 triN=objectNormal;
+      #ifdef USE_INSTANCING
+      triP=instanceMatrix*triP;triN=mat3(instanceMatrix)*triN;
+      #endif
+      vTriP=(modelMatrix*triP).xyz;vTriN=normalize(mat3(modelMatrix)*triN);`);
+    sh.fragmentShader=sh.fragmentShader.replace('void main() {',`uniform float uTri;varying vec3 vTriP;varying vec3 vTriN;
+      vec4 tri(sampler2D t){vec3 w=pow(abs(normalize(vTriN)),vec3(4.0));w/=w.x+w.y+w.z;vec3 p=vTriP*uTri;return texture2D(t,p.zy)*w.x+texture2D(t,p.xz)*w.y+texture2D(t,p.xy)*w.z;}
+      void main() {`).replace('#include <map_fragment>','diffuseColor*=tri(map);').replace('#include <roughnessmap_fragment>','float roughnessFactor=roughness*tri(roughnessMap).g;');};
+  m.customProgramCacheKey=()=>'triplanar';return m;}
+// what each world's rocks are made of
+const ROCK_LOOK={desert:['cliff',8,0xffffff],canyon:['cliff',8,0xffffff],lava:['basalt',4],ashfall:['basalt',4],harbor:['rock',3]};
+function rockMat(def){const [n,t,tint]=ROCK_LOOK[def.id]||['rock',3];return triplanarMat(n,t,tint||def.rock);}
+const waterMats=[];
+function waterMat(){const P=pbrSet('water');const m=new THREE.MeshPhysicalMaterial({color:0x0b4a60,roughness:.04,metalness:0,normalMap:P.normalMap,normalScale:new THREE.Vector2(.55,.55),envMapIntensity:1.2});
+  worldUV(m,16);const base=m.onBeforeCompile;m.onBeforeCompile=sh=>{base(sh);sh.uniforms.uScroll={value:new THREE.Vector2()};m.userData.sh=sh;
+    sh.vertexShader=sh.vertexShader.replace('uniform float uTile;','uniform float uTile;uniform vec2 uScroll;').replace('vNormalMapUv=wuv;','vNormalMapUv=wuv+uScroll;');};
+  m.customProgramCacheKey=()=>'water';waterMats.push(m);return m;}
+function animateWater(t){for(const m of waterMats)if(m.userData.sh)m.userData.sh.uniforms.uScroll.value.set(t*.011,t*.007);}
 const pmrem=new THREE.PMREMGenerator(renderer),exrLoader=new EXRLoader().setDataType(THREE.FloatType),envCache={};
 // HDRI -> prefiltered environment map; `gain` scales the image so each world's ambient light sits right against the sun
 function loadEnv(name,gain){const key=name+'@'+gain;if(!envCache[key])envCache[key]=new Promise(res=>exrLoader.load('assets/hdri/'+name+'.exr',t=>{
@@ -634,24 +672,28 @@ function buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N){
   const set=(im,i,x,y,z,s,rotY)=>{v.set(x,y,z);sc.set(s[0],s[1],s[2]);q.setFromAxisAngle(up,rotY||0);m.compose(v,q,sc);im.setMatrixAt(i,m);};
   const type=def.scenery||'trees';
   if(type==='trees'){
-    const trunks=inst(assetGeo('tree_trunk',()=>new THREE.CylinderGeometry(.35,.5,3,12)),M(def.trunk),420);const leaves=inst(assetGeo('tree_leaves',()=>new THREE.ConeGeometry(2.4,6,12)),M(def.tree,.9),420);
+    const rich=RICH_SCENERY();
+    const trunks=inst(assetGeo('tree_trunk',()=>new THREE.CylinderGeometry(.35,.5,3,12)),rich?barkMat(def.trunk):M(def.trunk),420);
+    const leaves=inst(rich?foliageNormals(assetGeo('tree_leaves'),-.5,.8):new THREE.ConeGeometry(2.4,6,12),rich?foliageMat('pine_branch',def.tree):M(def.tree,.9),420);
     const n=place(420,hw+OFFROAD_W+7,80,(x,y,z,i)=>{const s=0.8+rng()*1.1;const a=rng()*TAU;set(trunks,i,x,y+1.5*s-0.3,z,[s,s,s],a);set(leaves,i,x,y+5.5*s-0.3,z,[s,s,s],a);});trunks.count=leaves.count=n;}
   else if(type==='palms'){
-    const trunks=inst(assetGeo('palm_trunk',()=>new THREE.CylinderGeometry(.2,.42,7,10)),M(def.trunk),240);const fronds=inst(assetGeo('palm_frond',()=>new THREE.ConeGeometry(.6,4.4,5)),M(def.tree,.8),240*6);
+    const rich=RICH_SCENERY();
+    const trunks=inst(assetGeo('palm_trunk',()=>new THREE.CylinderGeometry(.2,.42,7,10)),rich?barkMat(0xb0a898,3.2):M(def.trunk),240);
+    const fronds=inst(rich?frondNormals(assetGeo('palm_frond')):new THREE.ConeGeometry(.6,4.4,5),rich?foliageMat('palm_leaf',def.tree,.2):M(def.tree,.8),240*6);
     const tilt=new THREE.Quaternion(),fq=new THREE.Quaternion(),ry=new THREE.Quaternion(),rx=new THREE.Quaternion().setFromEuler(new THREE.Euler(1.75,0,0)),top=new THREE.Vector3();
     const n=place(240,hw+OFFROAD_W+6,90,(x,y,z,i)=>{const s=.7+rng()*.8;const lean=rng()*.3,dir=rng()*TAU;tilt.setFromEuler(new THREE.Euler(Math.sin(dir)*lean,0,Math.cos(dir)*lean));
       v.set(0,3.5*s,0).applyQuaternion(tilt).add(new THREE.Vector3(x,y-.3,z));sc.set(s,s,s);m.compose(v,tilt,sc);trunks.setMatrixAt(i,m);
       top.set(0,7*s,0).applyQuaternion(tilt).add(new THREE.Vector3(x,y-.3,z));
       for(let f=0;f<6;f++){const a=f/6*TAU+rng()*.5;ry.setFromAxisAngle(up,a);fq.copy(ry).multiply(rx);v.set(Math.sin(a)*1.9*s,-.35*s,Math.cos(a)*1.9*s).add(top);sc.set(s,s*1.1,s*.3);m.compose(v,fq,sc);fronds.setMatrixAt(i*6+f,m);}});
     trunks.count=n;fronds.count=n*6;
-    const water=new THREE.Mesh(new THREE.CircleGeometry(760,64),new THREE.MeshStandardMaterial({color:0x2a8fd4,roughness:.15,metalness:.2}));water.rotation.x=-Math.PI/2;water.position.set(maxX+840,-1.2,(minZ+maxZ)/2);group.add(water);
+    const water=new THREE.Mesh(new THREE.CircleGeometry(760,64),rich?waterMat():new THREE.MeshStandardMaterial({color:0x2a8fd4,roughness:.15,metalness:.2}));water.rotation.x=-Math.PI/2;water.position.set(maxX+840,-1.2,(minZ+maxZ)/2);group.add(water);
     const shore=new THREE.Mesh(new THREE.CircleGeometry(775,64),M(0xf3e6c2,1));shore.rotation.x=-Math.PI/2;shore.position.set(maxX+840,-1.35,(minZ+maxZ)/2);group.add(shore);}
   else if(type==='desert'){
     const cactMat=M(def.tree,.85);const bodies=inst(assetGeo('cactus_body',()=>new THREE.CapsuleGeometry(.35,3,4,10)),cactMat,150);const arms=inst(assetGeo('cactus_arm',()=>new THREE.CapsuleGeometry(.2,1.1,4,8)),cactMat,300);
     const n=place(150,hw+OFFROAD_W+5,80,(x,y,z,i)=>{const s=.6+rng()*.9;set(bodies,i,x,y+1.9*s,z,[s,s,s],rng()*TAU);const a=rng()*TAU;
       [-1,1].forEach((sg,j)=>{v.set(x+Math.cos(a)*sg*.8*s,y+2.1*s+rng()*.7*s,z-Math.sin(a)*sg*.8*s);sc.set(s,s,s);q.setFromEuler(new THREE.Euler(0,a,sg*1.15));m.compose(v,q,sc);arms.setMatrixAt(i*2+j,m);});});
     bodies.count=n;arms.count=n*2;
-    const mesas=inst(new THREE.CylinderGeometry(1,1.35,1,9),M(def.rock,1,0,true),70);const n2=place(70,hw+OFFROAD_W+26,150,(x,y,z,i)=>{const r=6+rng()*16,h=8+rng()*26;set(mesas,i,x,y+h/2-1.5,z,[r,h,r*(.55+rng()*.7)],rng()*TAU);});mesas.count=n2;}
+    const mesas=inst(new THREE.CylinderGeometry(1,1.35,1,9,4),RICH_SCENERY()?triplanarMat('cliff',26,0xffffff):M(def.rock,1,0,true),70);const n2=place(70,hw+OFFROAD_W+26,150,(x,y,z,i)=>{const r=6+rng()*16,h=8+rng()*26;set(mesas,i,x,y+h/2-1.5,z,[r,h,r*(.55+rng()*.7)],rng()*TAU);});mesas.count=n2;}
   else if(type==='city'){
     const winTex=makeWindowTex();const bMat=new THREE.MeshStandardMaterial({color:0x3a4356,roughness:.7,map:winTex,emissive:0xffffff,emissiveMap:winTex,emissiveIntensity:.9});
     const b=inst(new THREE.BoxGeometry(1,1,1),bMat,240);const n=place(240,hw+OFFROAD_W+11,130,(x,y,z,i)=>{const w=6+rng()*11,d=6+rng()*11,h=8+rng()*44;set(b,i,x,y+h/2-1.4,z,[w,h,d],Math.round(rng()*4)*Math.PI/2+rng()*.08);});b.count=n;
@@ -660,13 +702,13 @@ function buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N){
   else if(type==='lava'){
     const pools=inst(new THREE.CircleGeometry(1,28),new THREE.MeshStandardMaterial({color:0xff5a1f,emissive:0xff3d00,emissiveIntensity:1.8,roughness:.35}),80,false);
     const n=place(80,hw+OFFROAD_W+6,90,(x,y,z,i)=>{const r=3+rng()*8;v.set(x,y+.02,z);sc.set(r,r*(.5+rng()*.7),1);q.setFromEuler(new THREE.Euler(-Math.PI/2,0,rng()*TAU));m.compose(v,q,sc);pools.setMatrixAt(i,m);});pools.count=n;
-    const spires=inst(new THREE.ConeGeometry(1,1,7),M(def.rock,1,0,true),100);const n2=place(100,hw+OFFROAD_W+9,110,(x,y,z,i)=>{const r=2+rng()*5,h=5+rng()*18;set(spires,i,x,y+h/2-1.2,z,[r,h,r],rng()*TAU);});spires.count=n2;}
+    const spires=inst(new THREE.ConeGeometry(1,1,7),RICH_SCENERY()?rockMat(def):M(def.rock,1,0,true),100);const n2=place(100,hw+OFFROAD_W+9,110,(x,y,z,i)=>{const r=2+rng()*5,h=5+rng()*18;set(spires,i,x,y+h/2-1.2,z,[r,h,r],rng()*TAU);});spires.count=n2;}
   else if(type==='space'||type==='planetoid'){
     const cx=(minX+maxX)/2,cz=(minZ+maxZ)/2;
     const planetCols=[0xff9a4a,0x6fb1ff,0xd94fa0,0xffe07a,0x8fe0c8,0xb07cff];
     for(let i=0;i<6;i++){const a=rng()*TAU,dist=380+rng()*220,r=18+rng()*40;const pm=new THREE.Mesh(new THREE.SphereGeometry(r,28,20),M(planetCols[i%planetCols.length],.8));pm.position.set(cx+Math.cos(a)*dist,-120+rng()*260,cz+Math.sin(a)*dist);group.add(pm);
       if(i===1){const ring=new THREE.Mesh(new THREE.TorusGeometry(r*1.7,r*.12,8,48),M(0xe8dcc0,.7));ring.position.copy(pm.position);ring.rotation.x=Math.PI/2.4;group.add(ring);}}
-    const roids=inst(assetGeo('rock',()=>new THREE.DodecahedronGeometry(1,0)),M(0x6d6a75,1,0,true),140);const q2=new THREE.Quaternion();const n=place(140,hw+OFFROAD_W+14,120,(x,y,z,i)=>{const sz=1.5+rng()*5;v.set(x,-40+rng()*90,z);sc.set(sz,sz*(.6+rng()*.6),sz);q2.setFromEuler(new THREE.Euler(rng()*3,rng()*3,rng()*3));m.compose(v,q2,sc);roids.setMatrixAt(i,m);});roids.count=n;
+    const roids=inst(assetGeo('rock',()=>new THREE.DodecahedronGeometry(1,0)),RICH_SCENERY()?triplanarMat('rock',4,0x8a8790):M(0x6d6a75,1,0,true),140);const q2=new THREE.Quaternion();const n=place(140,hw+OFFROAD_W+14,120,(x,y,z,i)=>{const sz=1.5+rng()*5;v.set(x,-40+rng()*90,z);sc.set(sz,sz*(.6+rng()*.6),sz);q2.setFromEuler(new THREE.Euler(rng()*3,rng()*3,rng()*3));m.compose(v,q2,sc);roids.setMatrixAt(i,m);});roids.count=n;
     if(type==='planetoid'){const R=115;const planet=new THREE.Mesh(new THREE.SphereGeometry(R,48,32),M(0x3fb04a,.9));planet.position.set(cx,-R-28,cz);planet.receiveShadow=true;group.add(planet);const top=-28;
       const wall=new THREE.Mesh(new THREE.CylinderGeometry(7,7,6,24),M(0xf3e2c0,.8));wall.position.set(cx,top+3,cz);wall.castShadow=true;group.add(wall);const dome=new THREE.Mesh(new THREE.SphereGeometry(7.4,28,16,0,TAU,0,Math.PI/2),M(0xff5c4d,.6));dome.position.set(cx,top+6,cz);dome.castShadow=true;group.add(dome);
       const door=new THREE.Mesh(new THREE.BoxGeometry(2.4,4,.4),M(0x3a2a1a,.9));door.position.set(cx,top+2,cz+7);group.add(door);
@@ -689,9 +731,17 @@ function buildScenery(def,group,samples,hw,rng,farFromTrack,bounds,up,N){
     const glow=new THREE.Mesh(new THREE.SphereGeometry(12,20,14),new THREE.MeshBasicMaterial({color:0xff4a1a,transparent:true,opacity:.22}));glow.position.copy(beacon.position);group.add(glow);}
   if(def.lamps){const poles=inst(new THREE.CylinderGeometry(.09,.12,4.2,8),M(def.lamps.pole||0x3a3f4a,.7,.2),96);const lamps=inst(new THREE.SphereGeometry(.36,12,10),new THREE.MeshStandardMaterial({color:def.lamps.color,emissive:def.lamps.color,emissiveIntensity:2.2}),96,false);let c=0;
     for(let i=0;i<N&&c<96;i+=Math.round(N/48)){const s=samples[i];const sg=c%2?1:-1;const p=s.p.clone().addScaledVector(s.r,sg*(hw+OFFROAD_W+2));set(poles,c,p.x,p.y+2.1,p.z,[1,1,1],0);set(lamps,c,p.x,p.y+4.4,p.z,[1,1,1],0);c++;}poles.count=lamps.count=c;}
+  // grass tufts along the verges and out into the fields
+  const TUFT={grass:0xffffff,beach:0xd9d2a6,sand:0xcbb57a,dirt:0xb9a86a},look=LOOKS[def.id]||{};
+  if(RICH_SCENERY()&&!def.noGround&&TUFT[look.ground]!=null){const cnt=2600,tufts=inst(upNormals(assetGeo('grass_tuft')),foliageMat('grass_tuft',TUFT[look.ground],.65),cnt,false);
+    const q4=new THREE.Quaternion(),edge=hw+OFFROAD_W+4;let c=0;
+    for(let t=0;t<cnt*4&&c<cnt;t++){const sm=samples[Math.floor(rng()*N)];const off=hw+1.4+Math.pow(rng(),1.7)*(OFFROAD_W+40);const p=sm.p.clone().addScaledVector(sm.r,(rng()<.5?-1:1)*off);
+      if(!farFromTrack(p.x,p.z,hw+1.3))continue;const y=off<=edge?sm.p.y:off<=edge+26?lerp(sm.p.y,-1.5,(off-edge)/26):-1.5;const k=.6+rng()*1.0;
+      v.set(p.x,y-.05,p.z);sc.set(k,k*(.8+rng()*.5),k);q4.setFromAxisAngle(up,rng()*TAU);m.compose(v,q4,sc);tufts.setMatrixAt(c++,m);}
+    tufts.count=c;}
   if(def.noRocks)return;
   // rocks everywhere
-  const rocks=inst(assetGeo('rock',()=>new THREE.DodecahedronGeometry(1.2,0)),M(def.rock,1,0,true),110);const rq=new THREE.Quaternion();
+  const rocks=inst(assetGeo('rock',()=>new THREE.DodecahedronGeometry(1.2,0)),RICH_SCENERY()?rockMat(def):M(def.rock,1,0,true),110);const rq=new THREE.Quaternion();
   let placed=0,tries=0;while(placed<110&&tries<3000){tries++;const x=rand2(rng,minX-60,maxX+60),z=rand2(rng,minZ-60,maxZ+60);if(!farFromTrack(x,z,hw+OFFROAD_W+2))continue;const s=.6+rng()*1.6;const y=nearTrackY(samples,x,z);v.set(x,y+s*.4-.2,z);sc.set(s,s*.7,s);rq.setFromEuler(new THREE.Euler(rng(),rng()*TAU,rng()));m.compose(v,rq,sc);rocks.setMatrixAt(placed,m);placed++;}
   rocks.count=placed;
 }
@@ -1317,7 +1367,7 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min(0.05,(now-G.l
 const _sz=new THREE.Vector2();
 function aimSun(p){sun.position.copy(p).add(SUN_OFFSET);sun.target.position.copy(p);sun.target.updateMatrixWorld();}
 function drawView(cam,x,y,w,h){renderer.setViewport(x,y,w,h);renderer.setScissor(x,y,w,h);sky.position.copy(cam.position);const c=Post.get(cam,w,h);if(c)c.render();else renderer.render(scene,cam);}
-function render(){renderer.getSize(_sz);const w=_sz.x,h=_sz.y;daySky.material.uniforms.uTime.value=performance.now()/1000;renderer.setScissorTest(true);
+function render(){renderer.getSize(_sz);const w=_sz.x,h=_sz.y;const now=performance.now()/1000;daySky.material.uniforms.uTime.value=now;animateWater(now);renderer.setScissorTest(true);
   if(G.views.length>1&&(G.state==='race'||G.state==='results')){
     G.views.forEach((v,i)=>{let x=0,y=0,vw=w,vh=h;if(G.splitDir==='v'){vw=Math.floor(w/2);x=i===0?0:w-vw;}else{vh=Math.floor(h/2);y=i===0?h-vh:0;}v.cam.aspect=vw/vh;v.cam.updateProjectionMatrix();
       aimSun(v.kart.pos);drawView(v.cam,x,y,vw,vh);});}

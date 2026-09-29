@@ -423,6 +423,20 @@ def uv_map(bm, fn, wrap_u=False):
     return bm
 
 
+def card(rows):
+    """A quad strip from rows of (position, (u, v)) pairs, with the UVs set per vertex."""
+    bm = bmesh.new()
+    lay = bm.loops.layers.uv.new('UVMap')
+    vs = [[(bm.verts.new(p), uv) for p, uv in row] for row in rows]
+    for ra, rb in zip(vs, vs[1:]):
+        for i in range(len(ra) - 1):
+            quad = [ra[i], ra[i + 1], rb[i + 1], rb[i]]
+            f = bm.faces.new([v for v, _ in quad])
+            for loop, (_, uv) in zip(f.loops, quad):
+                loop[lay].uv = uv
+    return bm
+
+
 def planar_uv(bm, a, b, lo, hi):
     """Project onto axes a and b (0=x, 1=y, 2=z), mapping lo..hi to 0..1."""
     return uv_map(bm, lambda co: ((co[a] - lo[0]) / (hi[0] - lo[0]), (co[b] - lo[1]) / (hi[1] - lo[1])))
@@ -740,24 +754,45 @@ def build_items():
 
 # --------------------------------------------------------------------------- scenery (geometry the game instances)
 def build_scenery():
-    # pine: trunk y in [-1.5, 1.5], three jagged tiers of needles y in [-3, 3]
-    a = Asset('tree_trunk')
-    a.add(lathe([(0, -1.5), (.62, -1.5), (.48, -1.2), (.4, -.4), (.34, .6), (.28, 1.5), (0, 1.5)], 10), 'Bark')
-    a = Asset('tree_leaves', sharp_angle=30)
-    for base, top, r in [(-3.0, .4, 2.4), (-1.3, 1.9, 1.9), (.4, 3.0, 1.3)]:
-        segs = 11
-        skirt, inner = [], []
-        for i in range(segs * 2):
-            t = i / (segs * 2) * TAU
-            rr = r if i % 2 == 0 else r * .78
-            dy = -.25 if i % 2 == 0 else .05
-            skirt.append(Vector((rr * math.sin(t), base + dy, rr * math.cos(t))))
-            inner.append(Vector((rr * .45 * math.sin(t), base + .35, rr * .45 * math.cos(t))))
-        tip = [Vector((0, top, 0))] * (segs * 2)
-        mid = [p.lerp(Vector((0, top, 0)), .45) + Vector((0, .1, 0)) for p in skirt]
-        a.add(surface([inner, skirt, mid, tip]), 'Leaves', smooth=False)
+    # pine: the game places the trunk with its local y=-1.5 at the ground and the canopy with local y=-5.5 at the ground
+    H = 10.0
+    rng = __import__('random').Random(5)
 
-    # palm: ringed trunk y in [-3.5, 3.5]; frond along +Y y in [-2.2, 2.2] with leaflets across X
+    def trunk_r(h):
+        return .32 * (1 - h / (H * 1.02)) ** 1.1 + .02
+    a = Asset('tree_trunk')
+    prof = [(0, -1.5), (.55, -1.5), (.42, -1.3)] + [(trunk_r(h), h - 1.5) for h in [.5, 2, 4, 6, 8, 9.4]] + [(0, H * .95 - 1.5)]
+    tr = lathe(prof, 12)
+    uv_map(tr, lambda co: (math.atan2(co.x, co.z) / TAU + .5, (co.y + 1.5) / 3.0), wrap_u=True)
+    a.add(tr, 'Bark')
+    a = Asset('tree_leaves', sharp_angle=80)
+    whorls = 10
+    for wi in range(whorls):
+        h = 1.7 + (H - 2.3) * wi / (whorls - 1)
+        frac = (h - 1.7) / (H - 1.7)
+        length = 3.1 * (1 - frac) ** .85 + .45
+        n_br = 8 if frac < .5 else 5
+        for bi in range(n_br):
+            ang = bi / n_br * TAU + wi * 2.39996 + rng.uniform(-.2, .2)
+            d = Vector((math.sin(ang), 0, math.cos(ang)))
+            side = Vector((math.cos(ang), 0, -math.sin(ang)))
+            roll = rng.uniform(-.55, .55)
+            wv = side * math.cos(roll) + Vector((0, math.sin(roll), 0))
+            width = length * .85
+            droop = .45 * length * (1 - frac * .5)
+            rows = []
+            for k in range(4):
+                t = k / 3
+                ctr = d * (trunk_r(h) + length * t) + Vector((0, h - 5.5 + .25 * length * t - droop * t * t, 0))
+                rows.append([(ctr - wv * width / 2, (0, t)), (ctr + wv * width / 2, (1, t))])
+            a.add(card(rows), 'Leaves', smooth=True)
+    for ang in (0, math.pi / 2):   # leader at the top: two crossed upright cards
+        d = Vector((math.sin(ang), 0, math.cos(ang)))
+        rows = [[(Vector((0, H - 6.8 + 1.6 * t, 0)) + d * sg * .45 * (1 - t * .6), (.5 + sg * .5 * (1 - t * .6), .3 + .7 * t)) for sg in (-1, 1)]
+                for t in (0, .5, 1)]
+        a.add(card(rows), 'Leaves')
+
+    # palm: ringed trunk y in [-3.5, 3.5]; frond card along +y (y in [-2.2, 2.2]) drooping toward +z
     a = Asset('palm_trunk')
     prof = [(0, -3.5)]
     for i in range(15):
@@ -765,18 +800,25 @@ def build_scenery():
         r = .42 + (.2 - .42) * i / 14
         prof += [(r, y), (r * 1.1, y + .12), (r * .95, y + .45)]
     prof += [(0, 3.5)]
-    a.add(lathe(prof, 10), 'Bark')
-    a = Asset('palm_frond', sharp_angle=20)
+    pt = lathe(prof, 12)
+    uv_map(pt, lambda co: (math.atan2(co.x, co.z) / TAU + .5, (co.y + 3.5) / 2.5), wrap_u=True)
+    a.add(pt, 'Bark')
+    a = Asset('palm_frond', sharp_angle=80)
     rows = []
-    for i in range(17):
-        y = -2.2 + 4.4 * i / 16
-        w = .75 * math.sin(math.pi * min(i + .5, 16) / 16.5) * (1 if i % 2 else .72)   # serrated edge
-        sweep_fwd = .25 * w
-        rows.append([Vector((-w, y + sweep_fwd, .1 * w)), Vector((0, y, 0)), Vector((w, y + sweep_fwd, .1 * w))])
-    blade = surface(rows, wrap=False, fix_normals=False)
-    back = surface(rows, wrap=False, fix_normals=False)
-    bmesh.ops.reverse_faces(back, faces=back.faces)   # two-sided, so it reads from above and below
-    a.add(merge(blade, back), 'Frond', smooth=False)
+    for k in range(9):
+        t = k / 8
+        y = -2.2 + 4.4 * t
+        z = 2.6 * t * t
+        rows.append([(Vector((x, y, z - .35 * abs(x))), (x / 1.9 + .5, t)) for x in (-.95, 0, .95)])
+    a.add(card(rows), 'Frond')
+
+    # grass tuft: three crossed cards, 1.2 wide and 0.7 tall, standing on y=0
+    a = Asset('grass_tuft', sharp_angle=80)
+    for i in range(3):
+        ang = i / 3 * math.pi
+        d = Vector((math.sin(ang), 0, math.cos(ang)))
+        rows = [[(d * -.6 + Vector((0, y, 0)), (0, y / .7)), (d * .6 + Vector((0, y, 0)), (1, y / .7))] for y in (0, .7)]
+        a.add(card(rows), 'Leaves')
 
     # cactus: ribbed capsules, body y in [-1.85, 1.85] radius .35, arm y in [-.75, .75] radius .2
     def ribbed(radius, half, segs=24, ribs=8):

@@ -64,7 +64,7 @@ python blender/build_assets.py
 
 Add `-- --blend karts.blend` (or `--blend karts.blend` with plain Python) to also save the scene to open and edit in Blender. You can also paste the script into Blender's Scripting tab and run it there.
 
-The road and ground materials (asphalt, grass, sand, beach, red dirt, snow, basalt, wet pavers) are procedural Blender shaders baked into seamless textures by [`blender/build_textures.py`](blender/build_textures.py), which writes a colour map, a normal map and a roughness/occlusion map for each to `assets/textures/`. Run it the same way as the model script.
+The road, ground and rock materials (asphalt, grass, sand, beach, red dirt, snow, basalt, wet pavers, bark, granite, sandstone strata, water ripples) and the alpha-cut foliage cards (pine branches, palm leaves, grass tufts) are procedural Blender shaders and scripted drawings baked into seamless textures by [`blender/build_textures.py`](blender/build_textures.py), which writes a colour map, a normal map and a roughness/occlusion map for each to `assets/textures/`. Run it the same way as the model script.
 
 Lighting comes from HDR environment images in `assets/hdri/`, from [Poly Haven](https://polyhaven.com/hdris) (CC0) via the [`@pmndrs/assets`](https://www.npmjs.com/package/@pmndrs/assets) package. Daytime worlds draw a physical sky with drifting clouds. The Graphics button picks how much post-processing runs: **Sharp** adds ambient occlusion and bloom, **Balanced** keeps bloom, and **Fast** renders plainly for older devices.
 

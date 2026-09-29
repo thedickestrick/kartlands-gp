@@ -314,6 +314,54 @@ def pavers(g):
     return col, height, rough, 3.0
 
 
+def bark(g):
+    """Pine bark, one tile = 1.5 m around x 3 m tall: vertical plates split by dark furrows."""
+    plates = g.voronoi(9, 'DISTANCE_TO_EDGE', ru=1, rv=.15, seed=1)
+    furrow = g.smooth(0.0, 0.08, plates)
+    tone = g.cell_random(9, seed=1, ru=1, rv=.15)
+    fine = g.noise(80, 4, 0.6, ru=1, rv=.3, seed=2)
+    col = g.ramp(tone, [(0.0, 0x4a3524), (0.6, 0x6b4c33), (1.0, 0x86664a)])
+    col = g.mix(furrow, 0x1e140d, col)
+    col = g.cmul(col, g.add(0.8, g.mul(fine, 0.4)))
+    height = g.add(g.mul(furrow, 0.7), g.mul(fine, 0.3))
+    return col, height, 0.95, 5.0
+
+
+def rock(g):
+    """Weathered grey granite for boulders, one tile = 3 m."""
+    base = g.noise(5, 6, 0.62, seed=1)
+    crack = g.smooth(0.0, 0.02, g.voronoi(6, 'DISTANCE_TO_EDGE', seed=2))
+    speck = g.noise(300, 2, 0.6, seed=3)
+    lichen = g.smooth(0.62, 0.72, g.noise(9, 4, seed=4))
+    col = g.ramp(g.add(g.mul(base, 0.7), g.mul(speck, 0.3)), [(0.0, 0x4b4a47), (0.5, 0x7a7872), (1.0, 0xa5a29a)])
+    col = g.mix(g.mul(lichen, 0.5), col, 0x7d8150)
+    col = g.cmul(col, g.add(0.55, g.mul(crack, 0.45)))
+    height = g.add(g.mul(base, 0.6), g.mul(crack, 0.25), g.mul(speck, 0.15))
+    return col, height, g.add(0.85, g.mul(speck, 0.1)), 5.0
+
+
+def cliff(g):
+    """Sandstone strata for mesas and canyon walls, one tile = 12 m: horizontal bands, eroded."""
+    warp = g.noise(3, 3, 0.5, seed=1)
+    band = g.math('SINE', g.add(g.mul(g.v, 14 * TAU), g.mul(warp, 3.0)))
+    band2 = g.math('SINE', g.add(g.mul(g.v, 37 * TAU), g.mul(warp, 5.0)))
+    layers = g.add(0.5, g.mul(band, 0.3), g.mul(band2, 0.2))
+    erosion = g.noise(10, 6, 0.62, ru=1, rv=.6, seed=2)
+    col = g.ramp(g.add(g.mul(layers, 0.7), g.mul(erosion, 0.3)), [(0.0, 0x7c3b22), (0.35, 0xa2583a), (0.6, 0xc07a52), (0.85, 0xd8a27a), (1.0, 0xb0663f)])
+    grain = g.noise(200, 3, 0.6, seed=3)
+    col = g.cmul(col, g.add(0.82, g.mul(grain, 0.3)))
+    height = g.add(g.mul(layers, 0.5), g.mul(erosion, 0.4), g.mul(grain, 0.1))
+    return col, height, 0.93, 5.0
+
+
+def water(g):
+    """Ocean ripples, one tile = 12 m. Only the normal map is used; the game scrolls two copies against each other."""
+    w1 = g.noise(6, 4, 0.55, distortion=0.6, seed=1)
+    w2 = g.noise(18, 3, 0.5, seed=2)
+    height = g.add(g.mul(w1, 0.7), g.mul(w2, 0.3))
+    return g.mix(height, 0x0d3a4f, 0x2a7f99), height, 0.05, 9.0
+
+
 MATERIALS = {
     'asphalt': asphalt,
     'grass': grass,
@@ -323,6 +371,10 @@ MATERIALS = {
     'snow': snow,
     'basalt': basalt,
     'pavers': pavers,
+    'bark': bark,
+    'rock': rock,
+    'cliff': cliff,
+    'water': water,
 }
 
 
@@ -421,6 +473,108 @@ def build(name, fn, scene, plane, size, out_dir):
     print(f'{name}: albedo mean {albedo.mean():.3f}, height {h.min():.2f}..{h.max():.2f}, rough {r.mean():.2f}')
 
 
+# --------------------------------------------------------------------------- foliage cards (RGBA, alpha-tested in the game)
+def raster_segments(size, segs, rng):
+    """Rasterise tapered line segments into (color, alpha). segs: list of (x0, y0, x1, y1, width, rgb)."""
+    h, w = size
+    col = np.zeros((h, w, 3), np.float32)
+    alpha = np.zeros((h, w), np.float32)
+    for x0, y0, x1, y1, wd, rgb in segs:
+        xmin, xmax = int(max(min(x0, x1) - wd - 2, 0)), int(min(max(x0, x1) + wd + 2, w - 1))
+        ymin, ymax = int(max(min(y0, y1) - wd - 2, 0)), int(min(max(y0, y1) + wd + 2, h - 1))
+        if xmax <= xmin or ymax <= ymin:
+            continue
+        yy, xx = np.mgrid[ymin:ymax + 1, xmin:xmax + 1].astype(np.float32)
+        dx, dy = x1 - x0, y1 - y0
+        L2 = dx * dx + dy * dy + 1e-6
+        t = np.clip(((xx - x0) * dx + (yy - y0) * dy) / L2, 0, 1)
+        d = np.hypot(xx - (x0 + t * dx), yy - (y0 + t * dy))
+        rad = wd * (1 - 0.7 * t)   # taper toward the tip
+        cov = np.clip(rad + 0.5 - d, 0, 1)
+        shade = (0.75 + 0.35 * t)[..., None]   # tips catch more light
+        sub = col[ymin:ymax + 1, xmin:xmax + 1]
+        sub[:] = sub * (1 - cov[..., None]) + np.array(rgb, np.float32) * shade * cov[..., None]
+        alpha[ymin:ymax + 1, xmin:xmax + 1] = np.maximum(alpha[ymin:ymax + 1, xmin:xmax + 1], cov)
+    return col, alpha
+
+
+def save_png_rgba(col, alpha, path):
+    h, w = alpha.shape
+    img = bpy.data.images.new('png', w, h, alpha=True, float_buffer=False)
+    img.colorspace_settings.name = 'Non-Color'
+    px = np.concatenate([to_srgb(col), alpha[..., None]], axis=2)[::-1]
+    img.pixels[:] = px.ravel()
+    img.filepath_raw = path
+    img.file_format = 'PNG'
+    img.save()
+    bpy.data.images.remove(img)
+
+
+def lin3(h):
+    return tuple(srgb(h)[:3])
+
+
+def pine_branch(rng, size=512):
+    """A drooping pine branch seen from above: stem up the middle (v), needles fanning forward."""
+    segs = []
+    for side_branch in range(10):
+        by = size * (0.3 + 0.068 * side_branch)
+        for sgn in (-1, 1):
+            ln = size * (0.44 - 0.03 * side_branch) * rng.uniform(.85, 1.05)
+            bx1, by1 = size / 2 + sgn * ln, by - ln * .45
+            segs.append((size / 2, by, bx1, by1, 3, lin3(0x3b2a1c)))
+            for k in range(26):
+                t = k / 26
+                px, py = size / 2 + sgn * ln * t, by - ln * .45 * t
+                for s2 in (-1, 1):
+                    a = math.atan2(-ln * .45, sgn * ln) + s2 * rng.uniform(.5, .95)
+                    nl = rng.uniform(16, 30) * (1 - .4 * t)
+                    c = lin3(int(rng.choice([0x1f4a26, 0x2a5d2e, 0x356b35, 0x234f28])))
+                    segs.append((px, py, px + math.cos(a) * nl, py + math.sin(a) * nl, 2.2, c))
+    segs.insert(0, (size / 2, size * .04, size / 2, size * .96, 5, lin3(0x3b2a1c)))
+    return raster_segments((size, size), segs, rng)
+
+
+def palm_leaf(rng, w=256, h=1024):
+    """A palm frond: a rib up the middle and long leaflets sweeping forward to both sides."""
+    segs = [(w / 2, h * .02, w / 2, h * .98, 5, lin3(0x7a8a3a))]
+    for k in range(46):
+        t = k / 46
+        y = h * (0.04 + 0.92 * t)
+        ln = w * .48 * math.sin(math.pi * min(t + .08, 1)) + 6
+        for sgn in (-1, 1):
+            c = lin3(int(rng.choice([0x2f7d3a, 0x3a8c3f, 0x2a6e33, 0x4a9a45])))
+            segs.append((w / 2, y, w / 2 + sgn * ln, y - ln * .9, 4.5, c))
+    return raster_segments((h, w), segs, rng)
+
+
+def grass_tuft(rng, w=512, h=256):
+    """A clump of grass blades rising from the bottom edge."""
+    segs = []
+    for k in range(140):
+        x0 = rng.uniform(w * .08, w * .92)
+        ln = rng.uniform(.35, .95) * h
+        lean = rng.uniform(-.35, .35)
+        c = lin3(int(rng.choice([0x3f6e22, 0x537f2a, 0x6b8f35, 0x7d8f42, 0x4a7526])))
+        segs.append((x0, h - 1, x0 + lean * ln, h - ln, rng.uniform(2.5, 4.5), c))
+    col, a = raster_segments((h, w), segs, rng)
+    return col, a   # rows run top-down, so tips sit at the top of the image (v = 1)
+
+
+def build_foliage(out_dir):
+    rng = np.random.default_rng(7)
+    for name, fn in [('pine_branch', pine_branch), ('palm_leaf', palm_leaf), ('grass_tuft', grass_tuft)]:
+        col, alpha = fn(rng)
+        # bleed colour into transparent pixels so mipmaps don't fringe dark
+        blurred = blur(col * alpha[..., None], 3)
+        wsum = blur(alpha[..., None].repeat(3, 2), 3)
+        mean = (col * alpha[..., None]).sum((0, 1)) / max(alpha.sum(), 1e-4)
+        fill = np.where(wsum > 1e-3, blurred / np.maximum(wsum, 1e-4), mean)   # far from any blade: the average colour
+        col = np.where(alpha[..., None] > 0.01, col, fill)
+        save_png_rgba(col, alpha, os.path.join(out_dir, name + '.png'))
+        print(f'{name}: coverage {alpha.mean():.2f}')
+
+
 def main():
     argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else sys.argv[1:]
     size, only, out_dir = 1024, None, os.path.join(HERE, '..', 'assets', 'textures')
@@ -435,6 +589,8 @@ def main():
     out_dir = os.path.abspath(out_dir)
     os.makedirs(out_dir, exist_ok=True)
     scene, plane = setup_scene(size)
+    if not only or 'foliage' in only:
+        build_foliage(out_dir)
     for name, fn in MATERIALS.items():
         if only and name not in only:
             continue

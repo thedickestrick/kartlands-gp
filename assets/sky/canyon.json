@@ -1,0 +1,21 @@
+{
+ "hdri": "qwantani_afternoon_puresky",
+ "sun": [
+  0.6114,
+  0.6536,
+  0.4461
+ ],
+ "sunColor": [
+  1.0,
+  0.9581,
+  0.8985
+ ],
+ "horizon": [
+  0.38274,
+  0.44858,
+  0.51826
+ ],
+ "envMean": 0.70713,
+ "bgScale": 1.09325,
+ "bgBelow": 0.10472
+}

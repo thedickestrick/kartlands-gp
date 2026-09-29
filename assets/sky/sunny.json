@@ -1,0 +1,21 @@
+{
+ "hdri": "kloofendal_48d_partly_cloudy_puresky",
+ "sun": [
+  0.5544,
+  0.7417,
+  0.3776
+ ],
+ "sunColor": [
+  0.9838,
+  1.0,
+  0.9073
+ ],
+ "horizon": [
+  0.44745,
+  0.48149,
+  0.5865
+ ],
+ "envMean": 0.67404,
+ "bgScale": 0.49632,
+ "bgBelow": 0.10472
+}

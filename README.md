@@ -1,8 +1,31 @@
 # Kartlands GP
 
-A 3D arcade kart racer in one HTML file, with models and textures built in Blender. Eight racers, twelve circuits, drifting, items, AI rivals, two-player split screen, gamepad support, and online rooms over WebRTC.
+A 3D arcade derby racer in one HTML file, with models and textures built in Blender. Eight drivers in eight very different vehicles, each with armor and a special weapon of its own; twelve circuits of two to three kilometres with jumps, gaps and long drops; twelve items from crates, coins and star tokens, three Grand Prix cups, AI rivals in three classes, two-player split screen, gamepad support, and online rooms over WebRTC.
 
 **Play it:** https://thedickestrick.github.io/kartlands-gp/
+
+## Modes
+
+- **Grand Prix:** four races for one trophy, with points for every place. Three cups, each at Rookie, Pro or Elite. One or two players.
+- **Quick race:** any circuit, any rival class, one, three or five laps. One or two players.
+- **Online:** host a room or join one with a five-letter code. Up to eight humans, and rivals fill the rest of the grid.
+
+Coins banked, best laps, star tokens found and trophies won are kept in the browser.
+
+## The grid
+
+| Driver | Ride | Special weapon | In short |
+|---|---|---|---|
+| Sgt. Havoc | The Bulldog, an armoured 4x4 | **The Fifty:** the roof gun tracks the nearest rival for three seconds | Tough, steady |
+| Tiff | Glitterbomb, a pink jeep with rocket pods | **Double Trouble:** two homing rockets | Light, quick off the line |
+| Honko | Mister Melty, a janky ice cream truck | **Triple Scoop:** three lobbed scoops that flatten and leave a slick | Bulky all-rounder |
+| Scorch | Cinderbox, a hot rod | **Afterburn:** a long boost that sets the road on fire | Fastest, fragile |
+| Zorp | The Dish, a flying saucer | **Shrink Ray:** shrinks the two nearest rivals ahead | Agile, floats over oil and the shoulder, thin armor |
+| Grubb | Mudslide, a monster truck | **Ground Pound:** hop, land, and everything nearby goes flying | Heavy, shoves everybody |
+| Nana Boom | Sweet Pea, a tank | **Main Gun:** one very large shell | Slowest, nearly unstoppable |
+| El Turbo | Macho Grande, a muscle car | **Twin Rotaries:** three seconds of lead straight ahead | Quick everywhere |
+
+Every vehicle has its own speed, acceleration, agility, armor and weight. Hits cost armor; at zero the vehicle is wrecked and rebuilt a moment later. Armor mends when you are left alone, and coins patch it up. The special weapon charges with time, and faster with coins, tricks and hits.
 
 ## Controls
 
@@ -11,12 +34,23 @@ A 3D arcade kart racer in one HTML file, with models and textures built in Blend
 | Steer | A / D or arrows | A / D | Left / Right | Either stick or d-pad |
 | Accelerate | W or Up | W | Up | Right trigger, A, or left stick forward |
 | Brake / reverse | S or Down | S | Down | Left trigger, B, or left stick back |
-| Drift | Shift or Space | Left Shift or Q | Right Shift or Space | Bumpers or X |
+| Drift, trick | Shift or Space | Left Shift or Q | Right Shift or Space | Bumpers |
 | Use item | E, Ctrl, or Enter | E or Left Ctrl | Enter or Right Ctrl | Y |
-| Reset kart | R | R | Backspace | Back |
+| Special weapon | F or Q | F | / or . | X |
+| Back onto the road | R | R | Backspace | Back |
 | Pause | Esc | Esc | Esc | Start |
 
-Hold drift while turning to charge a boost, then release it. Longer drifts give bigger boosts.
+Menus work with the mouse, the arrow keys and Enter, or a controller.
+
+## On the road
+
+- **Drift:** hold drift while turning to charge a boost, then release it. Longer drifts give bigger boosts.
+- **Jumps and tricks:** ramps launch you. Hold drift as you leave one to roll in the air and get a boost on landing.
+- **Coins:** each coin held adds a little top speed, up to ten. A hit scatters three; a fall costs two, a wreck four.
+- **Star tokens:** three on every circuit, one high over a jump and two out on the shoulders.
+- **Boost pads:** green chevrons on the road.
+- **Edges:** striped barriers are safe to lean on. Where there is no barrier there is a drop: open space on Tiny Planet and Prism Run, lava on Lava Crest and Ashfall Gate, cliffs on Frost Peak and Canyon Run, water on Harbor Nights, Palm Cove and Lei Lagoon. Some ramps are followed by a gap in the road. Fall and you are put back a moment later.
+- **Items:** Turbo, Triple Turbo, Homing Rocket, Pinball, Oil Slick, Boom Mine, Bubble Shield, Coin Magnet, Shockwave, Overdrive, Skyfall and Thunderclap. The further back you are, the heavier the weapons the crates hand out. **How to play** on the title screen describes each one.
 
 ## Online rooms
 
@@ -43,26 +77,30 @@ Serve the folder with any static server and open it in a browser, for example:
 npx serve .
 ```
 
-Opening the file directly also works for solo and split screen, but online rooms need an `http://` or `https://` address. Browsers won't load the models, textures and lighting files from disk, so the game uses its simpler built-in look when opened that way.
+Opening the file directly also works for solo and split screen, but online rooms need an `http://` or `https://` address. Browsers won't load the models, textures and lighting files from disk, so the game uses its simpler built-in look when opened that way, with plain boxes for the vehicles.
 
 ## Models, textures and lighting
 
-The karts and drivers are modelled from real-world measurements (a 125cc race kart and an adult driver in a full-face helmet), along with the items and scenery props, in Blender by a Python script, [`blender/build_assets.py`](blender/build_assets.py), and exported to `assets/kartlands.glb`. The file also carries pivot points (wheels, steering column, hips, neck, shoulders). The game reads them to animate steering, leaning and two-bone arm IK that keeps the hands on the wheel. Each racer's colours and livery (helmet design, race number panel, side-pod stickers) are applied by material name at runtime.
+The eight vehicles and their drivers are modelled in Blender by a Python script, [`blender/build_vehicles.py`](blender/build_vehicles.py), and exported to `assets/vehicles.glb`. Each vehicle is a handful of objects built around their own pivots: the body, the driver's head (which turns with the steering), one wheel placed at every axle, and whatever swivels, kicks or spins (the roof gun, the tank barrel, the saucer's rim, the rotary guns). Colour is painted per face into a vertex colour layer, so the whole grid shares five materials: paint, matte, metal, glow and glass.
 
-To rebuild the models after editing the script, run it with Blender 4.2 or newer:
+The item crates, rockets and scenery props (trees, palms, cacti, rocks, crystals) come from [`blender/build_assets.py`](blender/build_assets.py), exported to `assets/kartlands.glb`.
+
+To rebuild either file after editing its script, run it with Blender 4.2 or newer:
 
 ```bash
-blender --background --factory-startup --python blender/build_assets.py
+blender --background --factory-startup --python blender/build_vehicles.py
 ```
 
-Or use the `bpy` module from PyPI (Python 3.11):
+Or use the `bpy` module from PyPI:
 
 ```bash
 pip install bpy
-python blender/build_assets.py
+python blender/build_vehicles.py
 ```
 
-Add `-- --blend karts.blend` (or `--blend karts.blend` with plain Python) to also save the scene to open and edit in Blender. You can also paste the script into Blender's Scripting tab and run it there.
+Add `-- --blend vehicles.blend` (or `--blend vehicles.blend` with plain Python) to also save the scene to open and edit in Blender. You can also paste a script into Blender's Scripting tab and run it there.
+
+The circuits themselves are built by code. Each is a polygon of corners with a radius and a height (`TRACKS` in `index.html`), rounded into a spline, with ramps, gaps, boost pads and water listed beside it.
 
 The road, ground and rock materials (asphalt, grass, sand, beach, red dirt, snow, basalt, wet pavers, bark, granite, sandstone strata, water ripples) and the alpha-cut foliage cards (pine branches, palm leaves, grass tufts) are procedural Blender shaders and scripted drawings baked into seamless textures by [`blender/build_textures.py`](blender/build_textures.py), which writes a colour map, a normal map and a roughness/occlusion map for each to `assets/textures/`. Run it the same way as the model script.
 
@@ -76,4 +114,4 @@ The space tracks light from a night HDRI in `assets/hdri/` (Poly Haven, via the 
 
 ## Credits
 
-Built with [three.js](https://threejs.org/), [PeerJS](https://peerjs.com/) and [Blender](https://www.blender.org/). The models and ground textures are generated by the Blender scripts and the tracks by code. Photo-scanned textures, skies and the boulder are CC0 from [Poly Haven](https://polyhaven.com).
+Built with [three.js](https://threejs.org/), [PeerJS](https://peerjs.com/) and [Blender](https://www.blender.org/). The vehicles, drivers, props and ground textures are generated by the Blender scripts and the tracks by code. Photo-scanned textures, skies and the boulder are CC0 from [Poly Haven](https://polyhaven.com).

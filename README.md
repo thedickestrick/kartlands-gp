@@ -32,11 +32,11 @@ Every vehicle has its own speed, acceleration, agility, armor and weight. Hits c
 | Action | Keyboard (solo) | Player 1 (split) | Player 2 (split) | Controller |
 |---|---|---|---|---|
 | Steer | A / D or arrows | A / D | Left / Right | Either stick or d-pad |
-| Accelerate | W or Up | W | Up | Right trigger, A, or left stick forward |
-| Brake / reverse | S or Down | S | Down | Left trigger, B, or left stick back |
-| Drift, trick | Shift or Space | Left Shift or Q | Right Shift or Space | Bumpers |
-| Use item | E, Ctrl, or Enter | E or Left Ctrl | Enter or Right Ctrl | Y |
-| Special weapon | F or Q | F | / or . | X |
+| Accelerate | W or Up | W | Up | A (cross), or left stick forward |
+| Brake / reverse | S or Down | S | Down | B (circle), or left stick back |
+| Drift, trick | Shift or Space | Left Shift or Q | Right Shift or Space | Bumpers (L1 / R1) |
+| Use item | E, Ctrl, or Enter | E or Left Ctrl | Enter or Right Ctrl | Right trigger (R2) |
+| Special weapon | F or Q | F | / or . | Left trigger (L2) |
 | Back onto the road | R | R | Backspace | Back |
 | Pause | Esc | Esc | Esc | Start |
 
@@ -60,14 +60,16 @@ Rooms survive refreshes: a reloaded host reclaims the same code, and clients rej
 
 ### Relay server for tricky networks
 
-Browsers connect to each other directly. That works on most home networks, but players behind strict routers, carrier-grade NAT, cellular data, or Wi-Fi with client isolation need a relay (a TURN server). Free public relays no longer exist, so the game supports a free relay from [Metered](https://www.metered.ca/stun-turn):
+Browsers connect to each other directly. That works on most home networks, but players behind strict routers, carrier-grade NAT, cellular data, or Wi-Fi with client isolation need a relay (a TURN server). Relays cost money to run, so every provider wants an account. The game is wired for the free [Open Relay](https://www.metered.ca/tools/openrelay/) plan from Metered, which includes 20 GB of relay traffic a month. A race sends a few kilobytes a second, so that is thousands of hours.
 
-1. Create a free Metered account and add an app. The free plan includes 500 MB of relay traffic a month, which is plenty for kart inputs and snapshots.
-2. In the app's TURN settings, copy the **credentials URL**. It looks like `https://YOUR-APP.metered.live/api/v1/turn/credentials?apiKey=...`
-3. Open `index.html`, find `const TURN_API_URL='';` near the networking section, and paste the URL between the quotes.
+1. Sign up for the free Open Relay plan and note your app name and API key in the dashboard.
+2. Build the **credentials URL** from them: `https://YOUR-APP.metered.live/api/v1/turn/credentials?apiKey=YOUR-API-KEY`
+3. Open `index.html`, find `const TURN_API_URL='';` in the networking section, and paste the URL between the quotes.
 4. Commit and push. GitHub Pages redeploys in about a minute.
 
-The lobby shows how each player is connected: local network, direct internet link, or relay server.
+The key sits in the page source by design. It can only hand out relay credentials against your monthly allowance, so treat it as public and never reuse it for anything else.
+
+The Online screen says whether the relay is ready, and the lobby shows how each player is connected: local network, direct internet link, or relay server. If the relay cannot be reached the game falls back to direct connections.
 
 ## Local development
 

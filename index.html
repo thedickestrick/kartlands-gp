@@ -495,7 +495,7 @@
         <span>Player 2</span><b>Arrow keys drive, <kbd>Space</kbd> drifts, <kbd>Enter</kbd> item, <kbd>/</kbd> special</b>
       </div>
       <h3 style="margin-top:16px">Controller</h3>
-      <p class="dblurb">Either stick or the d-pad steers. Right trigger or A accelerates, left trigger or B brakes, bumpers drift, Y uses the item, X fires the special, Back resets, Start pauses. A second pad drives Player 2.</p>
+      <p class="dblurb">Either stick or the d-pad steers. A (cross) or the left stick forward accelerates; B (circle) or the stick back brakes. The bumpers drift. The right trigger (R2) uses the item from a crate and the left trigger (L2) fires your special weapon. Back resets, Start pauses. A second pad drives Player 2.</p>
     </section>
     <section class="panel">
       <h3>Staying in one piece</h3>
@@ -1324,7 +1324,7 @@ const typingTarget=e=>{const t=e.target;const tag=t&&t.tagName;return tag==='INP
 addEventListener('keydown',e=>{const typing=typingTarget(e),inMenu=G.state!=='race'||G.paused||!!activePanel();
   if(e.code==='Escape'){if(gpEdit)endEdit(false);else if(inMenu)menuB();else togglePause();e.preventDefault();return;}
   if(inMenu){const d={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0]}[e.code];if(d&&!gpEdit&&!(typing&&d[0])){menuMove(d[0],d[1]);e.preventDefault();}if(G.state!=='race'||G.paused)return;}
-  if(typing)return;if(e.code==='KeyM'){Audio.toggle();toast(Audio.on?'Sound on':'Sound off');return;}const m=activeKeymap()[e.code];if(m){const I=inputs[m[0]],k=m[1];if(k==='item'&&!I.item)I.itemPressed=true;if(k==='special'&&!I.special)I.specialPressed=true;I[k]=true;e.preventDefault();}});
+  if(typing)return;if(e.code==='KeyM'){Audio.toggle();toast(Audio.on?'Sound on':'Sound off');return;}const m=activeKeymap()[e.code];if(m){const I=inputs[m[0]],k=m[1];if(k==='item'&&!I.item)I.itemPressed=true;if(k==='special'&&!I.special)I.specialPressed=true;I[k]=true;lastKey[m[0]]=performance.now();e.preventDefault();}});
 addEventListener('keyup',e=>{[KM_SOLO,KM_SPLIT].forEach(km=>{const m=km[e.code];if(m)inputs[m[0]][m[1]]=false;});});
 addEventListener('blur',()=>{inputs.forEach(I=>{for(const k in I)I[k]=false;});});
 // touch
@@ -1847,7 +1847,8 @@ function updateHUD(v,dt){const k=v.kart,el=v.hud.el,c=v.c,laps=G.laps;const set=
   set('inc',k.incoming>0,w=>{el.inc.style.display=w?'flex':'none';});
   set('fade',k.dead>0&&k.dead<.8&&k.deathKind!=='wreck',f=>{el.fade.style.opacity=f?1:0;});
   const hp=clamp(k.hp/k.ch.armor,0,1);set('hp',Math.round(hp*50),a=>{el.abar.style.width=(a*2)+'%';el.armor.className='h-armor'+(hp<.3?' low':hp<.6?' mid':'');});
-  set('spic',k.ch.special,i=>{el.spic.innerHTML=icon(i);el.spname.textContent=SPECIALS[i].name;el.spkey.textContent=G.mode==='split'&&v.i===1?'/':'F';});
+  set('spic',k.ch.special,i=>{el.spic.innerHTML=icon(i);el.spname.textContent=SPECIALS[i].name;});
+  set('spkey',lastPad[v.i]>lastKey[v.i]?'L2':G.mode==='split'&&v.i===1?'/':'F',t=>{el.spkey.textContent=t;});
   set('spv',k.spT>0?-1:Math.round(k.sp*60),a=>{el.spbar.style.width=(a<0?100:a/60*100)+'%';el.sp.className='h-sp'+(a<0?' live':a>=60?' ready':'');});
   set('splat',k.splat>0,f=>{el.splat.style.opacity=f?1:0;});
   if(c.lit&&G.raceTime>1.1){c.lit=false;el.lights.classList.remove('show');}
@@ -1909,8 +1910,8 @@ function showCupFinal(){const gp=G.gp,st=Object.entries(gp.pts).sort((a,b)=>b[1]
   $('btnAgain').textContent='Done';$('btnMenu').textContent='Another cup';gp.over=true;Audio.sfx(place<=3?'finish':'ui');focusFirst();}
 
 // ============================================================ networking (WebRTC via PeerJS, host-authoritative)
-// Relay (TURN) server: needed for players behind strict routers, carrier-grade NAT or cellular. Free public relays no longer exist,
-// so paste a credentials URL from a free Metered.ca account here (see README.md). Empty = STUN only (direct connections).
+// Relay (TURN) server: needed for players behind strict routers, carrier-grade NAT or cellular. Relays need an account, so paste the
+// credentials URL from a free Metered Open Relay account here (see README.md). Empty = STUN only (direct connections).
 const TURN_API_URL='';
 const STUN=[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302','stun:stun.cloudflare.com:3478']}];
 const ICE={iceServers:STUN.slice(),sdpSemantics:'unified-plan'};
@@ -1920,8 +1921,9 @@ const PAGES_URL='https://thedickestrick.github.io/kartlands-gp/';
 const nowMs=()=>window.__simNow!=null?window.__simNow:performance.now();
 const Net={role:null,peer:null,myId:null,code:null,name:'Racer',conns:new Map(),lobby:{players:[],track:0},hostConn:null,
   snaps:[],acc:0,inAcc:0,itemCount:0,spCount:0,resetCount:0,rtt:80,pingT:0,hist:[],wev:[],puppetProj:new Map(),puppetHaz:new Map(),
-  iceCache:null,
-  async iceConfig(){if(Net.iceCache)return Net.iceCache;if(!TURN_API_URL)return Net.iceCache=ICE;try{const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),5000);const r=await fetch(TURN_API_URL,{signal:ctl.signal});clearTimeout(t);const j=await r.json();const list=Array.isArray(j)?j:(j.iceServers||j.ice_servers||[]);const turn=list.filter(x=>x&&x.urls);if(!turn.length)throw new Error('no ice servers in response');Net.hasRelay=turn.some(x=>String(x.urls).includes('turn'));Net.log('relay servers loaded',turn.length);return Net.iceCache={iceServers:STUN.concat(turn),sdpSemantics:'unified-plan'};}catch(e){Net.log('relay credentials unavailable',e.message);return Net.iceCache=ICE;}},
+  iceCache:null,iceAt:0,hasRelay:false,relayTried:false,
+  async iceConfig(){if(!TURN_API_URL)return ICE;if(Net.iceCache&&performance.now()-Net.iceAt<18e5)return Net.iceCache;try{const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),5000);const r=await fetch(TURN_API_URL,{signal:ctl.signal});clearTimeout(t);if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json();const list=Array.isArray(j)?j:(j.iceServers||j.ice_servers||[]);const turn=list.filter(x=>x&&x.urls);if(!turn.length)throw new Error('no ice servers in response');Net.hasRelay=turn.some(x=>String(x.urls).includes('turn'));Net.log('relay servers loaded',turn.length);Net.iceAt=performance.now();Net.relayTried=true;return Net.iceCache={iceServers:STUN.concat(turn),sdpSemantics:'unified-plan'};}catch(e){Net.log('relay credentials unavailable',e.message);Net.hasRelay=false;Net.relayTried=true;return ICE;}},
+  relayNote(){return !TURN_API_URL?'Rooms connect directly, which works on most home networks. Strict routers and some mobile networks need a relay server, and none is set up yet.':Net.hasRelay?'Relay server ready: rooms can connect on any network.':Net.relayTried?'The relay server could not be reached, so rooms will try to connect directly.':'Checking the relay server…';},
   status(msg,err){const s=$('netStatus');s.textContent=msg||'';s.classList.toggle('err',!!err);},
   codeFor(){const A='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<5;i++)s+=A[Math.floor(Math.random()*A.length)];return s;},
   readName(){const n=($('netName').value||'').trim();Net.name=n?n.slice(0,12):'Racer';try{localStorage.setItem('kgp-name',Net.name);}catch(e){}},
@@ -2094,15 +2096,15 @@ function render(){renderer.getSize(_sz);const w=_sz.x,h=_sz.y;const now=performa
 function countdown(prev){if(prev<0){const step=Math.ceil(-G.raceTime);if(step!==G.countStep){G.countStep=step;if(step>0&&step<=3){G.views.forEach(v=>showMsg(v,String(step)));setLights(4-step);Audio.sfx('count');}}
     if(G.raceTime>=0){G.views.forEach(v=>showMsg(v,'GO!','',.9));setLights(3,true);Audio.sfx('go');return true;}}return false;}
 // ---------- gamepads: pad 0 drives player 1, pad 1 drives player 2 in split screen; any pad drives player 1 otherwise
-const gpState=[{up:false,down:false,drift:false,steer:0,throttle:0,brake:0},{up:false,down:false,drift:false,steer:0,throttle:0,brake:0}];const gpPrev={};let gpSeen=0;
+const gpState=[{up:false,down:false,drift:false,steer:0,throttle:0,brake:0},{up:false,down:false,drift:false,steer:0,throttle:0,brake:0}];const gpPrev={};let gpSeen=0;const lastPad=[0,0],lastKey=[0,0];   // when each player last touched a pad or the keys, for the hints on the HUD
 function pollGamepads(){if(!navigator.getGamepads)return;let pads;try{pads=navigator.getGamepads();}catch(e){return;}gpState.forEach(g=>{g.up=g.down=g.drift=false;g.steer=0;g.throttle=0;g.brake=0;});let n=0;const inRace=G.state==='race'&&!G.paused;const tNow=performance.now();
   for(const p of pads){if(!p||!p.connected)continue;const pi=G.mode==='split'?Math.min(n,1):0;n++;const g=gpState[pi];const bt=i=>!!(p.buttons[i]&&(p.buttons[i].pressed||p.buttons[i].value>0.3));
     const dz=x=>Math.abs(x)>0.15?(x-Math.sign(x)*0.15)/0.85:0;const lx=dz(p.axes[0]||0),rx=dz(p.axes[2]||0),ly=dz(p.axes[1]||0),ry=dz(p.axes[3]||0);
-    const prev=gpPrev[p.index]||{};const now={item:bt(3),special:bt(2),reset:bt(8),start:bt(9),a:bt(0),b:bt(1)};
+    const prev=gpPrev[p.index]||{};const now={item:bt(7),special:bt(6),reset:bt(8),start:bt(9),a:bt(0),b:bt(1)};
     if(inRace){
       const ax=Math.abs(rx)>Math.abs(lx)?rx:lx;let steer=-ax;if(bt(14))steer=1;if(bt(15))steer=-1;if(steer)g.steer=clamp(steer,-1,1);
-      const trig=b=>!b?0:(b.value>0?b.value:(b.pressed?1:0));const rt=trig(p.buttons[7]),lt=trig(p.buttons[6]);const th=Math.max(rt,bt(0)?1:0,-ly),br=Math.max(lt,bt(1)?1:0,ly);if(th>g.throttle)g.throttle=th;if(br>g.brake)g.brake=br;g.up=g.throttle>0.05;g.down=g.brake>0.05;
-      if(bt(4)||bt(5))g.drift=true;if(now.item&&!prev.item)inputs[pi].itemPressed=true;if(now.special&&!prev.special)inputs[pi].specialPressed=true;if(now.reset&&!prev.reset)inputs[pi].reset=true;
+      const th=Math.max(bt(0)?1:0,-ly),br=Math.max(bt(1)?1:0,ly);if(th>g.throttle)g.throttle=th;if(br>g.brake)g.brake=br;g.up=g.throttle>0.05;g.down=g.brake>0.05;
+      if(bt(4)||bt(5))g.drift=true;if(th||br||steer||g.drift||now.item||now.special)lastPad[pi]=tNow;if(now.item&&!prev.item)inputs[pi].itemPressed=true;if(now.special&&!prev.special)inputs[pi].specialPressed=true;if(now.reset&&!prev.reset)inputs[pi].reset=true;
       if(now.start&&!prev.start)togglePause();}
     else{
       const sx=Math.abs(rx)>Math.abs(lx)?rx:lx,sy=Math.abs(ry)>Math.abs(ly)?ry:ly;const dirX=bt(15)?1:bt(14)?-1:(sx>0.55?1:sx<-0.55?-1:0);const dirY=bt(13)?1:bt(12)?-1:(sy>0.55?1:sy<-0.55?-1:0);
@@ -2263,7 +2265,7 @@ document.querySelectorAll('#segMusic button').forEach(b=>b.onclick=()=>{Audio.sf
 document.querySelectorAll('.splitopt').forEach(b=>b.onclick=()=>{Audio.init();Audio.sfx('ui');setSplitDir(b.dataset.dir);});
 $('btnResetSave').onclick=()=>{if(!resetArmed){resetArmed=1;$('btnResetSave').textContent='Press again to erase';return;}Save.reset();resetArmed=0;$('btnResetSave').textContent='Reset progress';$('saveInfo').textContent='Progress erased.';toast('Progress erased');};
 // ---------- online
-function openOnlinePanel(){G.mode='online';G.gp=null;show('online');Net.status('');try{if(!$('netName').value)$('netName').value=localStorage.getItem('kgp-name')||'';}catch(e){}const h=Net.hint();$('netHint').textContent=h?h:'Playing inside the Claude app? Online rooms need the web version: '+PAGES_URL;}
+function openOnlinePanel(){G.mode='online';G.gp=null;show('online');Net.status('');try{if(!$('netName').value)$('netName').value=localStorage.getItem('kgp-name')||'';}catch(e){}const h=Net.hint(),web=location.href.startsWith(PAGES_URL)||location.hostname==='localhost';const note=()=>{$('netHint').textContent=h?h:web?Net.relayNote():'Playing inside the Claude app? Online rooms need the web version: '+PAGES_URL;};note();if(!h&&web&&TURN_API_URL)Net.iceConfig().then(note);}
 $('btnOnline').onclick=()=>{Audio.init();Audio.resume();Audio.sfx('ui');openOnlinePanel();};
 $('btnInvite').onclick=()=>{const u=Net.inviteUrl();if(!u)return;const done=()=>{$('inviteMsg').textContent='Copied: '+u;};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(u).then(done,()=>{$('inviteMsg').textContent=u;});else $('inviteMsg').textContent=u;};
 $('btnOnlineBack').onclick=()=>{Net.leave(true);G.mode='solo';toTitle();};
